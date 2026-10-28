@@ -137,9 +137,9 @@ def explain_hit(conn: sqlite3.Connection, hit, profile: dict) -> str:
     avg = profile.get("avg_spend")
     if price is not None and avg and avg > 0:
         if price < avg:
-            parts.append(f"₹{price:,.0f} < your usual ₹{avg:,.0f}")
+            parts.append(f"${price:,.0f} < your usual ${avg:,.0f}")
         else:
-            parts.append(f"₹{price:,.0f} > your usual ₹{avg:,.0f}")
+            parts.append(f"${price:,.0f} > your usual ${avg:,.0f}")
     if not parts:
         parts.append("no personal history yet")
     return "; ".join(parts)

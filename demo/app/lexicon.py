@@ -409,10 +409,15 @@ def load_lexicon(conn: sqlite3.Connection) -> dict[str, dict[str, str]]:
         return _seed_lexicon()
 
     # Merge the seed on top so offline behaviour is always deterministic.
+    # The seed synonym/hinglish mappings win for their terms (they are the
+    # canonical concept map); the catalogue only contributes brands/categories.
     seed = _seed_lexicon()
     for kind, mapping in seed.items():
         for term, value in mapping.items():
-            lex.setdefault(kind, {}).setdefault(term, value)
+            if kind in ("synonym", "hinglish"):
+                lex.setdefault(kind, {})[term] = value
+            else:
+                lex.setdefault(kind, {}).setdefault(term, value)
 
     with _LOCK:
         _LEX_CACHE[key] = (n_rows, now, lex)
@@ -476,6 +481,52 @@ def category_aliases(lex: dict[str, dict[str, str]], category: str | None) -> li
             if normalise(value) == cat and term not in aliases:
                 aliases.add(term)
     return sorted(aliases)
+
+
+# --------------------------------------------------------------------------
+# Attribute surface forms.  Used to decide whether a *product* actually has
+# the facet the user asked for ("noise cancelling" -> title says "ANC").
+# --------------------------------------------------------------------------
+ATTRIBUTE_ALIASES: dict[str, list[str]] = {
+    "noise cancelling": ["noise cancelling", "noise cancellation", "active noise",
+                         "noise cancel", "anc", "btnc", "anc enabled"],
+    "noise cancellation": ["noise cancelling", "noise cancellation", "active noise",
+                           "noise cancel", "anc", "btnc"],
+    "anc": ["anc", "active noise", "noise cancelling", "noise cancellation"],
+    "wireless": ["wireless", "cordless", "bluetooth", "wi fi", "wifi"],
+    "bluetooth": ["bluetooth", "bt speaker"],
+    "gaming": ["gaming", "gamer", "game", "rgb", "rtx", "graphics card"],
+    "4k": ["4k", "uhd", "2160p", "3840x2160"],
+    "full hd": ["full hd", "1080p", "fhd"],
+    "1080p": ["1080p", "full hd", "fhd"],
+    "fast charging": ["fast charging", "fast charge", "quick charge", "quickcharging"],
+    "waterproof": ["waterproof", "water resistant", "water proof", "ipx"],
+    "dolby": ["dolby", "dolby atmos", "dts"],
+    "hdr": ["hdr", "high dynamic range"],
+    "oled": ["oled", "oled tv"],
+    "qled": ["qled", "quantum"],
+    "touchscreen": ["touch screen", "touchscreen", "touch display"],
+    "with mic": ["microphone", "with mic", "mic", "built in mic", "builtin mic"],
+    "bass": ["bass", "deep bass", "extra bass"],
+    "smart": ["smart", "smart tv", "android", "app"],
+    "foldable": ["foldable", "folding"],
+    "refurbished": ["refurbished", "renewed", "open box", "openbox"],
+    "portable": ["portable", "folding", "travel"],
+    "mechanical": ["mechanical", "mechanical keyboard"],
+    "fast": ["fast"], "sasta": ["cheap"], "cheap": ["cheap"],
+}
+
+
+def attribute_aliases(attribute: str) -> list[str]:
+    """Surface forms (normalised) that indicate a product has `attribute`."""
+    a = normalise(attribute)
+    if not a:
+        return []
+    out = [a]
+    for key, vals in ATTRIBUTE_ALIASES.items():
+        if normalise(key) == a:
+            out.extend(normalise(v) for v in vals)
+    return list(dict.fromkeys(x for x in out if x))
 
 
 def _selftest() -> None:

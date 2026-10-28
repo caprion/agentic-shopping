@@ -501,15 +501,32 @@ def _where_clause(constraints: dict, *, include_stock: bool = True,
     return (" AND ".join(conds) if conds else "1=1"), params
 
 
-def _category_tier(title: str, category_main: str, categories: str, cat: str) -> int:
+def _category_tier(title: str, category_main: str, categories: str,
+                  cat: str | list[str]) -> int:
     """How well does a product match the requested category?
 
     3 = the category is one of the catalogue category segments
     2 = the category is part of a segment ("Over-Ear Headphones")
     1 = the category only shows up in the title / as an accessory label
     0 = no match
+
+    `cat` may be a list of aliases (e.g. "tv" + "televisions" + "tv & video");
+    the best matching alias wins.
     """
-    c = str(cat or "").strip().lower()
+    cats = [cat] if isinstance(cat, str) else list(cat or [])
+    cats = [str(c or "").strip().lower() for c in cats if c]
+    if not cats:
+        return 0
+    best = 0
+    for c in cats:
+        best = max(best, _category_tier_one(title, category_main, categories, c))
+        if best == 3:
+            break
+    return best
+
+
+def _category_tier_one(title: str, category_main: str, categories: str,
+                       c: str) -> int:
     if not c:
         return 0
     blob = str(categories or "")
@@ -521,14 +538,9 @@ def _category_tier(title: str, category_main: str, categories: str, cat: str) ->
         segs = []
     if isinstance(segs, str):
         segs = [segs]
-    for seg in segs:
-        s = str(seg).strip().lower()
-        if not s:
-            continue
-        if c in s and any(w in s for w in ("accessor", "replacement", "spare",
-                                           "refurbished", "cover", "case ")):
-            # "Laptop Accessories" is not a laptop — skip this segment
-            continue
+    segs = [str(s).strip().lower() for s in segs if str(s).strip()]
+
+    def _match(s: str) -> int:
         if s == c or s == c + "s" or c == s + "s":
             return 3
         if s.startswith(c + " ") or s.endswith(" " + c) or s.startswith(c + " &") \
@@ -536,6 +548,22 @@ def _category_tier(title: str, category_main: str, categories: str, cat: str) ->
             return 2
         if c in s:
             return 1
+        return 0
+
+    # accessory segments are skipped, but they must not veto the *other*
+    # segments ("Headphones, Earbuds & Accessories" -> "Over-Ear Headphones")
+    best = 0
+    for s in reversed(segs):
+        if c in s and any(w in s for w in ("accessor", "replacement", "spare",
+                                           "refurbished", "cover", "case ")):
+            continue
+        t = _match(s)
+        if t:
+            best = max(best, t)
+        if best == 3:
+            break
+    if best:
+        return best
     cm = str(category_main or "").strip().lower()
     if cm == c or cm == c + "s":
         return 3
@@ -674,7 +702,7 @@ def _get_cross_encoder():
 
 
 def graph_expand(conn: sqlite3.Connection, product_ids: list[str],
-                 k: int = GRAPH_TOP) -> list[Hit]:
+                 k: int = 30) -> list[Hit]:
     """Expand a set of seed products through `product_edges` (co-purchase etc.)."""
     if not product_ids:
         return []
@@ -724,7 +752,9 @@ def _cross_encode_rerank(conn: sqlite3.Connection, query: str,
     topn = min(CE_TOP, len(ranked))
     ids = [pid for pid, _ in ranked[:topn]]
     titles = _product_titles(conn, ids)
-    pairs = [(query, titles.get(pid, "")) for pid in ids]
+    # long titles blow up the token count -> the cross-encoder dominates the
+    # latency; the first ~160 characters carry the product identity anyway.
+    pairs = [(query, (titles.get(pid) or "")[:160]) for pid in ids]
     try:
         logits = np.asarray(ce.predict(pairs), dtype=np.float32)
     except Exception as exc:  # noqa: BLE001
@@ -745,7 +775,8 @@ def _cross_encode_rerank(conn: sqlite3.Connection, query: str,
     return merged + ranked[topn:]
 
 
-def _apply_sort(conn: sqlite3.Connection, hits: list[Hit], sort: str | None) -> list[Hit]:
+def _apply_sort(conn: sqlite3.Connection, hits: list[Hit], sort: str | None,
+                category: str | None = None) -> list[Hit]:
     """Apply an explicit sort request (stable; fused score breaks ties)."""
     if not hits or not sort:
         return hits
@@ -753,11 +784,20 @@ def _apply_sort(conn: sqlite3.Connection, hits: list[Hit], sort: str | None) -> 
     q = ",".join("?" for _ in ids)
     try:
         rows = conn.execute(
-            f"SELECT product_id, price, rating, popularity FROM products "
+            f"SELECT product_id, price, rating, popularity, title FROM products "
             f"WHERE product_id IN ({q})", ids).fetchall()
     except sqlite3.Error:
         return hits
     meta = {r["product_id"]: r for r in rows}
+    if sort in ("price_asc", "price_desc"):
+        # a pure price sort would put cheap accessories first ("earphone case"
+        # at Rs.3 above a real pair of earphones) -> drop obvious accessories
+        # when enough real products remain.
+        real = [h for h in hits
+                if not _looks_like_accessory(
+                    meta.get(h.product_id, {"title": ""})["title"], category)]
+        if len(real) >= 5:
+            hits = real
     if sort == "price_asc":
         key = lambda h: (meta[h.product_id]["price"] if h.product_id in meta and
                          meta[h.product_id]["price"] is not None else 1e18, -h.score)
@@ -813,13 +853,15 @@ def hybrid_search(conn: sqlite3.Connection, query: str,
         merged = _default_constraints()
         merged.update({k: v for k, v in constraints.items() if v is not None})
         constraints = merged
+    aliases = _lexicon.category_aliases(lex, constraints.get("category"))
 
     try:
-        search_text = _search_text(constraints)
+        search_text = _search_text(constraints, aliases)
         dense_text = search_text
+        fts_query = _fts_text(constraints) or search_text
 
         t = time.perf_counter()
-        lexical = _fts_top(conn, search_text, limit=FTS_TOP, constraints=constraints)
+        lexical = _fts_top(conn, fts_query, limit=FTS_TOP, constraints=constraints)
         stages["fts_ms"] = (time.perf_counter() - t) * 1000
         t = time.perf_counter()
         dense = _dense_top(dense_text, k=DENSE_TOP, constraints=constraints)
@@ -828,15 +870,27 @@ def hybrid_search(conn: sqlite3.Connection, query: str,
         # category refinement on the lexical candidates (cheap, in-Python)
         cat = constraints.get("category")
         if cat and lexical:
-            refined = _filter_category(conn, [pid for pid, _ in lexical], cat)
+            refined = _filter_category(conn, [pid for pid, _ in lexical],
+                                       ([cat] + aliases))
+            if not refined:
+                relaxed = _filter_category(conn, [pid for pid, _ in lexical], [cat])
+                refined = relaxed
             if refined:
                 keep = set(refined)
                 lexical = [(pid, v) for pid, v in lexical if pid in keep]
+            else:
+                lexical = []
 
         seed_ids = [pid for pid, _ in (lexical + dense)[:50]]
         t = time.perf_counter()
         graph = graph_expand(conn, list(dict.fromkeys(seed_ids)), k=GRAPH_TOP)
         stages["graph_ms"] = (time.perf_counter() - t) * 1000
+
+        # a weak/empty lexical channel is complemented by popular in-catalogue
+        # items that satisfy the constraints (pure category queries)
+        sql_channel: list[str] = []
+        if len(lexical) < 5:
+            sql_channel = _sql_candidates(conn, constraints, aliases, limit=50)
 
         lexical_rank = {pid: i for i, (pid, _) in enumerate(lexical)}
         dense_rank = {pid: i for i, (pid, _) in enumerate(dense)}
@@ -845,7 +899,8 @@ def hybrid_search(conn: sqlite3.Connection, query: str,
         fused = _rrf(
             [[pid for pid, _ in lexical],
              [pid for pid, _ in dense],
-             [h.product_id for h in graph]], k=RRF_K)
+             [h.product_id for h in graph],
+             sql_channel], k=RRF_K)
         if not fused:
             return _sql_fallback(conn, constraints, k)
 
@@ -855,12 +910,14 @@ def hybrid_search(conn: sqlite3.Connection, query: str,
         stages["filter_ms"] = (time.perf_counter() - t) * 1000
         if not ranked:
             return _sql_fallback(conn, constraints, k)
-        if constraints.get("category"):
-            ranked = _category_preference(conn, ranked, constraints["category"])
 
         t = time.perf_counter()
         ranked = _cross_encode_rerank(conn, search_text or dense_text, ranked)
         stages["ce_ms"] = (time.perf_counter() - t) * 1000
+        if constraints.get("category"):
+            ranked = _category_preference(conn, ranked, constraints["category"],
+                                          aliases)
+        ranked = _attribute_preference(conn, ranked, constraints)
 
         hits = [
             Hit(product_id=pid, score=score,
@@ -870,7 +927,8 @@ def hybrid_search(conn: sqlite3.Connection, query: str,
             for pid, score in ranked[: max(k, 25)]
         ]
         hits = _personalise(conn, hits, user_id)
-        hits = _apply_sort(conn, hits, constraints.get("sort"))
+        hits = _apply_sort(conn, hits, constraints.get("sort"),
+                           constraints.get("category"))
         stages["total_ms"] = (time.perf_counter() - t0) * 1000
         global LAST_TIMINGS
         LAST_TIMINGS = stages
@@ -882,7 +940,7 @@ def hybrid_search(conn: sqlite3.Connection, query: str,
         return _lexical_only(conn, query, k)
 
 
-def _search_text(constraints: dict) -> str:
+def _search_text(constraints: dict, extra_aliases: list[str] | None = None) -> str:
     """Lexical/dense query text built from the *meaningful* parts only.
 
     Relation words ("for my brother"), intent words ("gift") and constraint
@@ -900,6 +958,8 @@ def _search_text(constraints: dict) -> str:
     phrase = attrs.get("_category_phrase")
     if phrase:
         parts.append(str(phrase))
+    # NB: category aliases are deliberately NOT added to the query text — an
+    # extra token makes the FTS AND-match too strict ("head sets" ...)
     for k, v in attrs.items():
         if k.startswith("not_") or k in ("negations", "gift", "_category_phrase"):
             continue
@@ -916,8 +976,132 @@ def _search_text(constraints: dict) -> str:
     return " ".join(out).strip()
 
 
+def _fts_text(constraints: dict) -> str:
+    """Text used for the FTS5 channel.
+
+    Deliberately *without* the category synonym aliases: FTS5 matches the
+    quoted tokens with AND, so an extra alias phrase ("head sets") would
+    collapse recall to almost nothing.
+    """
+    parts: list[str] = []
+    ft = (constraints.get("free_text") or "").strip()
+    if ft:
+        parts.append(ft)
+    for b in constraints.get("brand") or []:
+        parts.append(str(b))
+    if constraints.get("category"):
+        parts.append(str(constraints["category"]))
+    attrs = constraints.get("attributes") or {}
+    for k, v in attrs.items():
+        if k.startswith("not_") or k in ("negations", "gift", "_category_phrase"):
+            continue
+        if v is True:
+            parts.append(k.replace("_", " "))
+    out: list[str] = []
+    seen: set[str] = set()
+    for p in parts:
+        key = p.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(p.strip())
+    return " ".join(out).strip()
+
+
+def _attribute_preference(conn: sqlite3.Connection, ranked: list[tuple[str, float]],
+                          constraints: dict) -> list[tuple[str, float]]:
+    """Soft-prefer candidates whose text actually contains the requested facet.
+
+    The lexical channel only guarantees that *some* token matched; a query
+    like "noise cancelling headphones" must not return plain studio monitors.
+    Candidates that state the facet (title / features / description) are
+    boosted, the rest are damped — but only when enough candidates match, so
+    a rare facet never empties the result set.
+    """
+    attrs = constraints.get("attributes") or {}
+    wanted = [k for k, v in attrs.items()
+              if v is True and not str(k).startswith("_")
+              and k not in ("gift", "negations")]
+    if not wanted or not ranked:
+        return ranked
+    alias_map = {a: _lexicon.attribute_aliases(a) for a in wanted}
+    ids = [pid for pid, _ in ranked[:300]]
+    q = ",".join("?" * len(ids))
+    try:
+        rows = conn.execute(
+            f"SELECT product_id, title, features, description FROM products "
+            f"WHERE product_id IN ({q})", ids).fetchall()
+    except sqlite3.Error:
+        return ranked
+    if not rows:
+        return ranked
+
+    def _has(text: str, alias: str) -> bool:
+        if alias in text:
+            if len(alias) <= 4:  # short alias -> word boundary only
+                return re.search(r"\b" + re.escape(alias) + r"\b", text) is not None
+            return True
+        return False
+
+    matched: dict[str, int] = {}
+    is_accessory: set[str] = set()
+    cat = constraints.get("category")
+    for r in rows:
+        blob = normalise(" ".join([
+            r["title"] or "", r["features"] or "", r["description"] or ""]))
+        hits = 0
+        for a, aliases in alias_map.items():
+            if any(_has(blob, al) for al in aliases):
+                hits += 1
+        matched[r["product_id"]] = hits
+        if _looks_like_accessory(r["title"], cat):
+            is_accessory.add(r["product_id"])
+    n_matched = sum(1 for pid, v in matched.items()
+                     if v > 0 and pid not in is_accessory)
+    if n_matched < 3:
+        return ranked  # too few candidates state the facet -> do not distort
+    out = []
+    for pid, score in ranked:
+        if pid in is_accessory:
+            mult = 0.7
+        else:
+            mult = 1.06 if matched.get(pid, 0) else 0.94
+        out.append((pid, score * mult))
+    out.sort(key=lambda kv: -kv[1])
+    return out
+
+
+_ACCESSORY_TITLE_WORDS = (
+    "cover", "case", "replacement", "spare", "skin", "sticker", "adapter",
+    "charger", "cable", "remote", "protector", "strap", "holder", "stand",
+    "compatible with", "fits ", "for macbook", "refurbished", "open box",
+    "mount", "cooling pad", "cleaning kit", "ear pad", "earpad",
+    "eartip", "ear tip", "tips", "sleeve", "pouch", "bag", "clip", "hook",
+    "dock", "base", "screwdriver", "cleaning", "storage box", "wristband",
+)
+
+
+def _looks_like_accessory(title: str, category: str | None) -> bool:
+    """Heuristic: is this product an accessory *of* the requested category?
+
+    Examples: "Laptop Cooling Pad for 14-17 Inch Gaming Laptop",
+    "Replacement Earpads for Bose 700", "Remote Control for All LCD TV".
+    """
+    t = str(title or "").lower()
+    if not t:
+        return False
+    if any(w in t for w in _ACCESSORY_TITLE_WORDS):
+        return True
+    cat = str(category or "").strip().lower()
+    if cat and " for " in t:
+        head, _, tail = t.rpartition(" for ")
+        if cat not in head and cat in tail:
+            return True
+    return False
+
+
 def _category_preference(conn: sqlite3.Connection, ranked: list[tuple[str, float]],
-                         category: str) -> list[tuple[str, float]]:
+                         category: str,
+                         aliases: list[str] | None = None) -> list[tuple[str, float]]:
     """Soft-prefer candidates that really are in the requested category.
 
     Tier 2: the label appears in category_main / the category path
@@ -934,28 +1118,34 @@ def _category_preference(conn: sqlite3.Connection, ranked: list[tuple[str, float
             f"WHERE product_id IN ({q})", ids).fetchall()
     except sqlite3.Error:
         return ranked
-    c = str(category).lower()
+    cats = [str(category).lower()] + [str(a).lower() for a in (aliases or [])]
+    cats = list(dict.fromkeys(c for c in cats if c))
     meta = {r["product_id"]: r for r in rows}
     tiers: dict[int, list[tuple[str, float]]] = {3: [], 2: [], 1: [], 0: []}
+    accessory: set[str] = set()
     for pid, score in ranked:
         row = meta.get(pid)
         tier = 3 if row is None else _category_tier(
-            row["title"], row["category_main"], row["categories"], c)
+            row["title"], row["category_main"], row["categories"], cats)
         tiers[tier].append((pid, score))
+        if row is not None and _looks_like_accessory(row["title"], category):
+            accessory.add(pid)
     strong = tiers[3] + tiers[2]
     weak = tiers[1]
-    if len(strong) >= 3:
-        keep = strong
-    elif len(strong) + len(weak) >= 5:
-        keep = strong + weak
-    else:
-        keep = strong + weak + tiers[0]
+    # never *drop* a candidate here: a wrong category judgement must not
+    # remove a highly relevant product.  Only re-weight.
+    keep = strong + weak + tiers[0]
     bonus = {3: 0.0015, 2: 0.0008, 1: 0.0, 0: -0.0020}
+    mult = {3: 1.03, 2: 1.01, 1: 1.0, 0: 0.96}
     tier_of: dict[str, int] = {}
     for tier, items in tiers.items():
         for pid, _s in items:
             tier_of[pid] = tier
-    scored = [(pid, s + bonus.get(tier_of.get(pid, 1), 0.0)) for pid, s in keep]
+    # accessories of the requested category are damped (but never removed)
+    n_real = sum(1 for pid, _ in keep if pid not in accessory)
+    acc_mult = 0.6 if n_real >= 3 else 1.0
+    scored = [(pid, s * mult.get(tier_of.get(pid, 1), 1.0)
+                * (acc_mult if pid in accessory else 1.0)) for pid, s in keep]
     scored.sort(key=lambda kv: -kv[1])
     return scored
 
@@ -980,6 +1170,30 @@ def _hard_filter(conn: sqlite3.Connection, ranked: list[tuple[str, float]],
     keep = {r["product_id"] for r in rows}
     out = [(pid, s) for pid, s in ranked if pid in keep]
     return out or ranked
+
+
+def _sql_candidates(conn: sqlite3.Connection, constraints: dict,
+                    aliases: list[str] | None = None, limit: int = 50) -> list[str]:
+    """Popular in-catalogue products that satisfy the constraints.
+
+    Used as an extra retrieval channel when the lexical channel is empty
+    (e.g. a pure category query like "tv" where bm25 favours accessories).
+    """
+    try:
+        where, params = _where_clause(constraints)
+        rows = conn.execute(
+            f"SELECT product_id FROM products WHERE {where} "
+            f"ORDER BY COALESCE(popularity,0) DESC, COALESCE(rating,0) DESC, "
+            f"COALESCE(price,1e18) ASC LIMIT ?", params + [limit * 4]).fetchall()
+        ids = [r["product_id"] for r in rows]
+    except sqlite3.Error as exc:
+        log.warning("SQL candidates failed: %s", exc)
+        return []
+    cat = constraints.get("category")
+    if cat and ids:
+        cats = [cat] + list(aliases or [])
+        ids = _filter_category(conn, ids, cats)
+    return ids[:limit]
 
 
 def _sql_fallback(conn: sqlite3.Connection, constraints: dict, k: int) -> list[Hit]:
