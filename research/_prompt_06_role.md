@@ -1,0 +1,16 @@
+You are an expert product/tech writer preparing a **dossier** for a job candidate evaluating Amazon's "Principal Product Manager-T, Tech, Agentic Shopping Experience" (Bengaluru) — a role whose JD emphasises customer-facing AI shopping, experimentation, PRFAQ/PRD, and emerging markets.
+
+Your job: research the ROLE and the CANDIDATE-ADJACENT market context, and write a rigorous evaluation dossier.
+
+Deliverables in `/home/sumit/agentic-shopping/research/06-role-evaluation.md`:
+1. Fetch and analyse the actual JD: https://www.amazon.jobs/en/jobs/10587375/principal-product-manager-tech-agentic-shopping-experience — quote the key requirements verbatim (minimum quals, responsibilities, "you will thrive" section), then interpret what each implies about the day-to-day (what artifacts they'd produce, what metrics, what collaborations, what tech depth).
+2. Analyse adjacent/competing Amazon roles that a candidate might compare against: Amazon "Principal Product Manager Tech – AI, Multi-Channel Commerce (Amazon Smart Commerce)" (job 10504461), and 2-3 other Amazon AI/agentic PM roles in Bengaluru/Seattle. For each: scope, platform vs product, likely team, tech depth.
+3. **B2C vs platform**: give a rigorous framework — what makes a role "platform" vs "product" vs "consumer", with signals in a JD, and place this role (and 2 others) on a spectrum. Include the "hidden platform work" hypothesis (the shared agent/retrieval/eval infra behind consumer AI) and how a candidate could own it.
+4. **Level calibration**: what "Principal PM-T" means at Amazon (scope expectations, ambiguity, influence without authority, principal = distinguished individual contributor vs staff = manages), how Principal differs from Senior PM in expectations, and what hiring managers probe (Leadership Principles like "Customer Obsession", "Invent and Simplify", "Frugality", "Earn Trust", "Bias for Action", "Ownership", "Dive Deep", "Deliver Results", "Insist on the Highest Standards"). Provide a **Leadership Principle → interview question → what a strong answer sounds like** table.
+5. **Interview loop** for Amazon Principal PM-T (likely: online assessment, LP-based behaviour interview, "Deep Dive" system design/technical bar, "Bar Raiser", and for tech PMs a "Technical Design Review" of a proposed system). Give a prep plan with sample system-design prompts for agentic shopping (e.g. "design the search & answer layer for 500M ASINs at 10k QPS with a 2s p95 budget").
+6. **What a candidate should verify with the recruiter/hiring manager** — 12 sharp questions, ranked, with why each matters.
+7. **30/60/90 plan** if hired: what to ship in the first 90 days in this role (generic but concrete).
+8. **Risk register**: reasons this role could be a bad fit (surface-level PM work, metric-chasing, org ambiguity, model-provider dependency, compliance in emerging markets) and mitigations/negotiation levers.
+9. **Market salary/level context** for Amazon Principal PM-T in India (Bengaluru), sourced with URLs (Levels.fyi, Glassdoor, AmbitionBox, LinkedIn posts) — state clearly if numbers are estimates.
+
+Cite everything with URLs + access dates. 3500-5000 words, tables, no padding. End with a 10-line summary of the sharpest conclusions.
