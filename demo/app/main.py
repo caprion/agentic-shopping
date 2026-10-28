@@ -91,9 +91,9 @@ def _to_usd(text: str) -> str:
 # serving layer applies the USD policy without touching that file).
 # --------------------------------------------------------------------------- #
 _AGENT_PROMPT_PATCHES = (
-    ("for an Indian e-commerce prototype",
+    ("for an e-commerce marketplace",
      "for the US Amazon marketplace (catalogue prices are in USD)"),
-    ("the ₹50,000 session budget", "the $2,000 session budget"),
+    ("the $2,000 session budget", "the $2,000 session budget"),
 )
 
 

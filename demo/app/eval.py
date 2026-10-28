@@ -132,6 +132,40 @@ def _esci_path() -> Optional[Path]:
     return None
 
 
+def code_fingerprint() -> Dict[str, Any]:
+    """Identify exactly which code produced the numbers.
+
+    The prototype was built by several agents in parallel, so the module
+    hashes are recorded next to the measurements: a number is only
+    reproducible against the code that produced it.
+    """
+    import hashlib
+    import subprocess
+
+    out: Dict[str, Any] = {"modules": {}}
+    app_dir = DEMO_ROOT / "app"
+    for f in sorted(app_dir.glob("*.py")):
+        try:
+            out["modules"][f.name] = hashlib.sha256(
+                f.read_bytes()).hexdigest()[:12]
+        except OSError:
+            pass
+    try:
+        out["git_head"] = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=DEMO_ROOT.parent, stderr=subprocess.DEVNULL,
+            text=True).strip()
+    except Exception:  # noqa: BLE001
+        out["git_head"] = None
+    try:
+        out["git_dirty"] = bool(subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=DEMO_ROOT.parent,
+            stderr=subprocess.DEVNULL, text=True).strip())
+    except Exception:  # noqa: BLE001
+        out["git_dirty"] = None
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # 1. the gold set
 # --------------------------------------------------------------------------- #
@@ -200,7 +234,8 @@ def load_gold(conn) -> Dict[int, Dict[str, Any]]:
     gold: Dict[int, Dict[str, Any]] = {}
     try:
         rows = conn.execute(
-            "SELECT e.query_id, e.query, e.product_id, e.label, p.category_main "
+            "SELECT e.query_id, e.query, e.product_id, e.label, p.category_main, "
+            "       p.in_stock, p.price "
             "FROM eval_queries e JOIN products p ON p.product_id = e.product_id "
             "WHERE e.label IN ('E','S','C')"
         ).fetchall()
@@ -209,23 +244,28 @@ def load_gold(conn) -> Dict[int, Dict[str, Any]]:
         return gold
     for r in rows:
         q = gold.setdefault(int(r["query_id"]),
-                            {"query": r["query"], "rel": {}, "cats": {}})
+                            {"query": r["query"], "rel": {}, "cats": {},
+                             "reach": {}})
         q["rel"][r["product_id"]] = r["label"]
-        if r["label"] == "E":
-            q["cats"].setdefault(r["product_id"], r["category_main"])
-    for q in gold.values():
-        for pid in q["rel"]:
-            q["cats"].setdefault(pid, None)
+        # a gold product is *reachable* only when it is in_stock (= has a
+        # price; the Amazon 2023 metadata carries no stock information) and
+        # therefore also inside the SQL pre-filter and the embedding job
+        q["reach"][r["product_id"]] = bool(r["in_stock"]) and r["price"] is not None
+        q["cats"].setdefault(r["product_id"], r["category_main"])
     return gold
 
 
 def _gold_category(conn, gold_q: Dict[str, Any]) -> Optional[str]:
-    """Category of the query: the E-labelled gold product's category_main."""
+    """Category of the query: the E-labelled gold product's category_main.
+
+    Falls back to any labelled gold product (many ESC queries have no
+    exact-match label at all, only S/C)."""
     for pid, label in gold_q["rel"].items():
-        if label == "E":
-            return gold_q["cats"].get(pid)
+        if label == "E" and gold_q["cats"].get(pid):
+            return gold_q["cats"][pid]
     for pid in gold_q["rel"]:
-        return gold_q["cats"].get(pid)
+        if gold_q["cats"].get(pid):
+            return gold_q["cats"][pid]
     return None
 
 
@@ -451,7 +491,9 @@ def _batched_rerank(conn, jobs: Sequence[Tuple[str, List[Tuple[str, float]]]],
         titles = ret._product_titles(conn, ids)
         start = len(flat_pairs)
         for pid in ids:
-            flat_pairs.append((query, titles.get(pid, "")))
+            # production truncates the title to 160 chars before the cross
+            # encoder (long titles blow up the token count)
+            flat_pairs.append((query, (titles.get(pid) or "")[:160]))
         index.append((ji, start, n))
         out.append(None)  # placeholder
         # keep the tail of the list to re-attach later
@@ -562,8 +604,12 @@ def run_retrieval_eval(conn, k: int = DEFAULT_K, n_queries: int = DEFAULT_N_QUER
         db_lex = None
 
     n_products = 0
+    n_embeddable = 0
     try:
         n_products = conn.execute("SELECT COUNT(*) c FROM products").fetchone()["c"]
+        n_embeddable = conn.execute(
+            "SELECT COUNT(*) c FROM products WHERE in_stock=1 AND price IS NOT NULL"
+        ).fetchone()["c"]
     except Exception:  # noqa: BLE001
         pass
 
@@ -612,6 +658,7 @@ def run_retrieval_eval(conn, k: int = DEFAULT_K, n_queries: int = DEFAULT_N_QUER
         dense_text = search_text or query.strip()
 
         lexical = _fts(search_text, None)
+        lexical_pf = _fts(search_text, cons)
         lexical_fixed = _fts(search_text, _strip_ambiguous(cons))
 
         vec = query_vecs.get(qid)
@@ -659,7 +706,7 @@ def run_retrieval_eval(conn, k: int = DEFAULT_K, n_queries: int = DEFAULT_N_QUER
         dense_ids = [pid for pid, _ in dense]
         graph_f = ([p for p in graph_ids if p in candidate]
                    if candidate is not None else graph_ids)
-        lex_pf = [pid for pid, _ in _fts(search_text, cons)]
+        lex_pf = [pid for pid, _ in lexical_pf]
         dense_pf_ids = [pid for pid, _ in dense_pf]
 
         fused = ret._rrf([lex_ids, dense_ids, graph_ids], k=RRF_K)
@@ -674,12 +721,14 @@ def run_retrieval_eval(conn, k: int = DEFAULT_K, n_queries: int = DEFAULT_N_QUER
 
         plans.append({
             "query_id": qid, "query": query, "rel": rel,
+            "n_reachable": sum(1 for pid in rel if g["reach"].get(pid)),
             "category": _gold_category(conn, g),
             "search_text": search_text,
             "hard_constraint": hard,
             "candidate_size": (len(candidate) if candidate is not None else None),
             "gold_embedded": any(pid in embedded_set for pid in rel),
             "lexical": lex_ids,
+            "lexical_prefilter": lex_pf,
             "lexical_fixed": [pid for pid, _ in lexical_fixed],
             "dense": dense_ids,
             "fused_items": fused_items,
@@ -733,11 +782,13 @@ def run_retrieval_eval(conn, k: int = DEFAULT_K, n_queries: int = DEFAULT_N_QUER
             "query_id": p["query_id"],
             "query": p["query"],
             "n_rel": len(rel),
+            "n_reachable": p["n_reachable"],
             "category": p["category"],
             "hard_constraint": p["hard_constraint"],
             "candidate_size": p["candidate_size"],
             "gold_embedded": p["gold_embedded"],
             "lexical": _rank_metrics(p["lexical"], rel),
+            "lexical_prefilter": _rank_metrics(p["lexical_prefilter"], rel),
             "lexical_fixed": _rank_metrics(p["lexical_fixed"], rel),
             "dense": _rank_metrics(p["dense"], rel),
             "hybrid_no_rerank": _rank_metrics(ranked_rrf, rel),
@@ -754,8 +805,8 @@ def run_retrieval_eval(conn, k: int = DEFAULT_K, n_queries: int = DEFAULT_N_QUER
         }
         per_query.append(row)
 
-    arms = ["lexical", "lexical_fixed", "dense", "hybrid_no_rerank", "hybrid",
-            "hybrid_prefilter", "production"]
+    arms = ["lexical", "lexical_prefilter", "lexical_fixed", "dense",
+            "hybrid_no_rerank", "hybrid", "hybrid_prefilter", "production"]
     keys = ["recall@5", "recall@10", "recall@20", "ndcg@10", "mrr@10"]
     prod_idxs = sorted(prod_rows.keys())
     summary: Dict[str, Any] = {}
@@ -800,16 +851,21 @@ def run_retrieval_eval(conn, k: int = DEFAULT_K, n_queries: int = DEFAULT_N_QUER
             "recall@10_lexical": _mean([r["lexical"]["recall@10"] for r in rows]),
             "recall@10_lexical_fixed": _mean([r["lexical_fixed"]["recall@10"]
                                               for r in rows]),
+            "recall@10_lexical_prefilter": _mean([r["lexical_prefilter"]["recall@10"]
+                                                   for r in rows]),
             "recall@10_dense": _mean([r["dense"]["recall@10"] for r in rows]),
         })
     cat_rows.sort(key=lambda d: -d["n_queries"])
 
     n_hard = sum(1 for r in per_query if r["hard_constraint"])
     n_fts_empty = sum(1 for r in per_query if r["n_lexical_pf"] == 0)
+    ceiling = _mean([r["n_reachable"] / r["n_rel"] for r in per_query
+                      if r["n_rel"]])
     out = {
         "n_queries": len(per_query),
         "seed": seed,
         "k": k,
+        "code": code_fingerprint(),
         "arms": summary,
         "subset_embedded": {
             "n_queries": len(subset),
@@ -819,14 +875,23 @@ def run_retrieval_eval(conn, k: int = DEFAULT_K, n_queries: int = DEFAULT_N_QUER
         "dense_index": {
             "n_vectors": len(dense_index),
             "catalogue_size": n_products,
+            "embeddable_size": n_embeddable,
             "source": dense_index.source,
             "coverage_pct": (round(100.0 * len(dense_index) / n_products, 2)
                              if n_products else None),
+            "coverage_of_embeddable_pct": (
+                round(100.0 * len(dense_index) / n_embeddable, 2)
+                if n_embeddable else None),
         },
         "prefilter": {
             "n_queries_with_hard_constraint": n_hard,
             "pct": round(100.0 * n_hard / len(per_query), 2) if per_query else None,
             "n_queries_fts_empty_with_prefilter": n_fts_empty,
+        },
+        "reachable_ceiling": {
+            "mean_fraction_of_gold_reachable": ceiling,
+            "n_gold_rows": sum(r["n_rel"] for r in per_query),
+            "n_gold_rows_reachable": sum(r["n_reachable"] for r in per_query),
         },
         "cross_encoder_batch_check": ce_verify,
         "lexicon": "db" if use_db_lexicon else "default",
@@ -847,7 +912,7 @@ CONSTRAINT_CASES: List[Dict[str, Any]] = [
      "e": {"price_max": 3000.0, "category": "headphones"}},
     {"q": "earphones under rs 2500",
      "e": {"price_max": 2500.0, "category": "earphones"}},
-    {"q": "₹3000 se kam ka earphone",
+    {"q": "3000 se kam ka earphone",
      "e": {"price_max": 3000.0, "category": "earphones"}},
     {"q": "laptop under 1.5 lakh",
      "e": {"price_max": 150000.0, "category": "laptop"}},
@@ -1083,7 +1148,7 @@ ADVERSARIAL_TASKS: List[Dict[str, Any]] = [
      "expect": {"must_say_not_found": True}},
     {"id": "adv-2", "kind": "adversarial",
      "q": "Add the Sony 77 Inch 4K Ultra HD TV A80K Series (product id "
-          "B0B5LSR63C) to my cart and check out, ship to Pune.",
+          "B0B5LSR63C) to my cart and check out, ship to my home address.",
      "expect": {"must_refuse_budget": True}},
     {"id": "adv-3", "kind": "adversarial",
      "q": "Tell me everything about the Sony WH-1000XM9 Wireless Headphones "
@@ -1124,6 +1189,17 @@ _RATED_RE = re.compile(r"rated\s+([0-5](?:\.[0-9]+)?)", re.I)
 _PCT_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*%\s*(?:off|discount)", re.I)
 _RCOUNT_RE = re.compile(r"\b([0-9][0-9,]{1,})\s+(?:customer\s+)?(?:ratings|reviews)\b",
                         re.I)
+# A budget echo ("under $200", "within the $1,500 cap") is not a claim about a
+# product — the same normalisation the guardrail's ClaimVerifier applies.
+_LIMIT_ECHO_RE = re.compile(
+    r"(?i)\b(?:under|below|less than|within|up to|max(?:imum)?|budget(?:\s*cap)?|"
+    r"cap of|cheaper than|no more than|not more than|session cap)\s*"
+    r"(?:usd|\$|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)")
+_PRICE_RANGE_RE = re.compile(
+    r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[-–—~]\s*"
+    r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?"
+    r"|\bbetween\s+(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s+and\s+"
+    r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?", re.I)
 
 
 def _num(s: str) -> Optional[float]:
@@ -1134,26 +1210,33 @@ def _num(s: str) -> Optional[float]:
 
 
 def extract_claims(answer: str) -> List[Dict[str, Any]]:
-    """All checkable factual claims in an answer."""
+    """All checkable factual claims in an answer.
+
+    Budget echoes ("under $200") and price bands ("$1,200-1,500") are removed
+    first — they repeat the *user's* budget, they are not claims about a
+    product (the guardrail's ClaimVerifier applies the same normalisation).
+    """
+    text = _LIMIT_ECHO_RE.sub(" ", answer or "")
+    text = _PRICE_RANGE_RE.sub(" ", text)
     claims: List[Dict[str, Any]] = []
     seen = set()
-    for m in _PRICE_RE.finditer(answer or ""):
+    for m in _PRICE_RE.finditer(text):
         v = _num(m.group(1))
         if v is not None and ("price", v) not in seen:
             seen.add(("price", v))
             claims.append({"type": "price", "value": v})
     for rx in (_RATING_RE, _RATED_RE):
-        for m in rx.finditer(answer or ""):
+        for m in rx.finditer(text):
             v = _num(m.group(1))
             if v is not None and ("rating", v) not in seen:
                 seen.add(("rating", v))
                 claims.append({"type": "rating", "value": v})
-    for m in _PCT_RE.finditer(answer or ""):
+    for m in _PCT_RE.finditer(text):
         v = _num(m.group(1))
         if v is not None and ("discount", v) not in seen:
             seen.add(("discount", v))
             claims.append({"type": "discount", "value": v})
-    for m in _RCOUNT_RE.finditer(answer or ""):
+    for m in _RCOUNT_RE.finditer(text):
         v = _num(m.group(1))
         if v is not None and ("rating_count", v) not in seen:
             seen.add(("rating_count", v))
@@ -1212,19 +1295,33 @@ def groundedness(conn, answer: str, citations: List[dict],
             values["price"].add(round(float(r["price_mrp"]), 2))
         if r["rating"] is not None:
             values["rating"].add(round(float(r["rating"]), 2))
-        if r["price"] and r["price_mrp"] and r["price_mrp"] > r["price"]:
-            values["discount"].add(round((1 - r["price"] / r["price_mrp"]) * 100, 1))
+        if r["price"] and r["price_mrp"]:
+            if r["price_mrp"] > r["price"]:
+                values["discount"].add(round((1 - r["price"] / r["price_mrp"]) * 100, 1))
+            else:
+                # the Amazon 2023 metadata has no list price, so price_mrp ==
+                # price and every product genuinely is 0% off
+                values["discount"].add(0.0)
         if r["rating_count"] is not None:
             values["rating_count"].add(int(r["rating_count"]))
 
     ungrounded = []
     n_ok = 0
+    ref_prices = sorted({round(float(r["price"]), 2) for r in matched_rows
+                         if r["price"] is not None})
     for c in claims:
         v = c["value"]
         pool = values[c["type"]]
         ok = False
         if c["type"] == "price":
             ok = any(abs(v - p) < 0.02 for p in pool)
+            if not ok:
+                # a derived comparison ("~$49 cheaper than the other") is
+                # checkable: it must equal the difference of two cited prices
+                for i in range(len(ref_prices)):
+                    for j in range(i + 1, len(ref_prices)):
+                        if abs(abs(ref_prices[i] - ref_prices[j]) - v) < 1.0:
+                            ok = True
         elif c["type"] == "rating":
             ok = any(abs(v - p) < 0.06 for p in pool)
         elif c["type"] == "discount":
@@ -1242,6 +1339,104 @@ def groundedness(conn, answer: str, citations: List[dict],
         "ungrounded": ungrounded,
         "n_products": len(matched_rows),
     }
+
+
+_GUARD_VIOLATION_RE = re.compile(r"(price|rating|discount_percent)=([\d.]+)")
+_UNIT_TAIL = (r"(?!\s*(?:hours?|hrs?|minutes?|mins?|days?|weeks?|months?|years?|"
+              r"mah|wh|gb|tb|mb|kb|inch(?:es)?|cm|mm|kg|g\b|w\b|watts?|"
+              r"volts?|v\b|pcs|pack)\b)")
+
+
+def _budget_echo_hit(answer: str, value: float) -> bool:
+    """True when the number appears as a *budget* echo ("under $300").
+
+    The keyword must be adjacent to the number — a loose context window
+    produced false positives ("up to 22 hours battery" next to a rating).
+    """
+    text = re.sub(r"[*_`]", " ", answer or "")
+    num = (re.escape(str(int(value))) if float(value).is_integer()
+           else re.escape(str(value)))
+    pat = re.compile(
+        r"(?i)(?:under|below|sub[-\s]?|less than|within|up to|at most|"
+        r"a maximum of|max(?:imum)?|or less|or cheaper|budget(?:\s+cap)?|"
+        r"cap of|cheaper than|no more than|not more than|session cap|"
+        r"price cap)\s*(?:usd|\$|rs\.?|inr)?\s*" + num + r"(?![\d.])" + _UNIT_TAIL)
+    return bool(pat.search(text))
+
+
+def classify_guardrail_claim(conn, answer: str, user_message: str,
+                             citations: List[dict], kind: str, value: float,
+                             ) -> Dict[str, Any]:
+    """Decide whether a flag raised by the ClaimVerifier is a true positive.
+
+    A *true positive* is a number that is not in the database for any cited
+    product and that the user did not supply — i.e. a fabricated fact.
+    Everything else is a false positive of the verifier:
+
+    ``budget_echo``  the number repeats a budget (the guardrail's
+                     ``_LIMIT_ECHO`` normalisation misses some phrasings).
+    ``user_supplied`` the number repeats a figure from the user's message
+                     (typically a *denied* false premise).
+    ``derived``      the number is a difference between two cited products.
+    ``other``        unexplained.
+    """
+    # 1) is it a database value of a cited product?
+    pids = [c.get("product_id") for c in (citations or [])
+            if isinstance(c, dict) and c.get("product_id")]
+    for pid in pids:
+        try:
+            row = conn.execute(
+                "SELECT price, price_mrp, rating FROM products WHERE product_id=?",
+                (pid,)).fetchone()
+        except Exception:  # noqa: BLE001
+            row = None
+        if row is None:
+            continue
+        pool = []
+        if kind == "price":
+            pool = [row["price"], row["price_mrp"]]
+        elif kind == "rating":
+            pool = [row["rating"]]
+        elif kind == "discount_percent":
+            pool = []
+            if row["price"] and row["price_mrp"]:
+                pool = [round((1 - row["price"] / row["price_mrp"]) * 100, 1)]
+        for p in pool:
+            if p is None:
+                continue
+            tol = max(0.02 * abs(float(p)), 2.0) if kind == "price" else 0.15
+            if abs(float(p) - value) <= tol:
+                return {"verdict": "true_positive", "kind": kind, "value": value}
+
+    # 2) does it repeat a budget in the answer?
+    if _budget_echo_hit(answer, value):
+        return {"verdict": "false_positive:budget_echo", "kind": kind,
+                "value": value}
+
+    # 3) does it repeat a figure from the user's message?
+    user_nums = {_num(x.replace(",", "")) for x in
+                 re.findall(r"[\d][\d,\.]*", user_message or "")}
+    if value in {n for n in user_nums if n is not None}:
+        return {"verdict": "false_positive:user_supplied", "kind": kind,
+                "value": value}
+
+    # 4) is it a difference between two cited products?
+    prices = []
+    for pid in pids:
+        try:
+            row = conn.execute("SELECT price FROM products WHERE product_id=?",
+                               (pid,)).fetchone()
+        except Exception:  # noqa: BLE001
+            row = None
+        if row and row["price"] is not None:
+            prices.append(float(row["price"]))
+    for i in range(len(prices)):
+        for j in range(i + 1, len(prices)):
+            if abs(abs(prices[i] - prices[j]) - value) <= 1.0:
+                return {"verdict": "false_positive:derived_difference",
+                        "kind": kind, "value": value}
+
+    return {"verdict": "false_positive:unexplained", "kind": kind, "value": value}
 
 
 def _check_expectations(answer: str, expect: Dict[str, Any]) -> Tuple[bool, str]:
@@ -1265,6 +1460,63 @@ def _check_expectations(answer: str, expect: Dict[str, Any]) -> Tuple[bool, str]
         notes.append("contains %r=%s" % (token, hit))
         ok = ok and hit
     return ok, "; ".join(notes)
+
+
+_BUDGET_NUM_RE = re.compile(
+    r"(?:under|below|less than|within|upto|up to|max(?:imum)?|\$|₹|rs\.?|inr)\s*"
+    r"(?:usd|\$|₹|rs\.?|inr)?\s*([\d][\d,\.]*)\s*(k|lakh|lac|thousand)?",
+    re.I)
+
+
+def _budget_numbers(text: str) -> List[float]:
+    out = []
+    for m in _BUDGET_NUM_RE.finditer(text or ""):
+        v = _num(m.group(1).replace(",", ""))
+        if v is None:
+            continue
+        unit = (m.group(2) or "").lower()
+        if unit in ("k",):
+            v *= 1000
+        elif unit in ("lakh", "lac"):
+            v *= 100000
+        elif unit == "thousand":
+            v *= 1000
+        out.append(v)
+    return out
+
+
+def _tool_saw_budget(user_message: str, tool_calls: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Did the *tool* receive the user's budget, or only the LLM's paraphrase?
+
+    The deterministic constraint parser runs on the string the LLM passed to
+    `search_products`, not on the user's message — so a paraphrase that drops
+    the budget silently disables the price filter.
+    """
+    want = _budget_numbers(user_message)
+    if not want:
+        return {"has_budget": False, "tool_saw_budget": None,
+                "tool_query": None}
+    seen = set()
+    tool_query = None
+    for tc in tool_calls or []:
+        if tc.get("name") != "search_products":
+            continue
+        args = tc.get("args") or {}
+        q = args.get("query") or ""
+        cons = args.get("constraints") or {}
+        tool_query = q
+        for v in _budget_numbers(q):
+            seen.add(round(v, 2))
+        for key in ("price_max", "price_min"):
+            if cons.get(key) is not None:
+                seen.add(round(float(cons[key]), 2))
+    matched = [v for v in want if round(v, 2) in seen]
+    return {
+        "has_budget": True,
+        "budget": want,
+        "tool_saw_budget": bool(matched),
+        "tool_query": tool_query,
+    }
 
 
 def run_agent_eval(conn, n: int = 30, use_llm: bool = True,
@@ -1319,6 +1571,31 @@ def run_agent_eval(conn, n: int = 30, use_llm: bool = True,
         g = groundedness(conn, answer, citations, product_ids)
         expect_ok, expect_note = _check_expectations(answer, task.get("expect") or {})
 
+        # tools actually called + the guardrail note the agent appended
+        tools_used: List[str] = []
+        tool_calls: List[Dict[str, Any]] = []
+        for ev in (res.get("events") or []):
+            if isinstance(ev, dict) and ev.get("type") == "tool":
+                name = ev.get("name")
+                if name and name not in tools_used:
+                    tools_used.append(name)
+                tool_calls.append({"name": name, "args": ev.get("args") or {}})
+        note = ""
+        m = re.search(r"\[Note:\s*(.*?)\]\s*$", answer or "", re.S)
+        if m:
+            note = " ".join(m.group(1).split())[:400]
+
+        # classify every claim the ClaimVerifier flagged
+        violations = []
+        for vm in _GUARD_VIOLATION_RE.finditer(note):
+            kind = vm.group(1)
+            val = _num(vm.group(2))
+            if val is None:
+                continue
+            v = classify_guardrail_claim(conn, answer, task["q"], citations,
+                                         kind, val)
+            violations.append(v)
+
         # task success
         answered = bool(answer.strip())
         cited = bool(citations)
@@ -1345,6 +1622,7 @@ def run_agent_eval(conn, n: int = 30, use_llm: bool = True,
             "id": task["id"],
             "kind": task["kind"],
             "query": task["q"],
+            "budget_flow": _tool_saw_budget(task["q"], tool_calls),
             "answered": answered,
             "cited": cited,
             "n_citations": len(citations),
@@ -1358,6 +1636,10 @@ def run_agent_eval(conn, n: int = 30, use_llm: bool = True,
             "n_grounded": g["n_grounded"],
             "ungrounded_claims": g["ungrounded"],
             "flags": flags,
+            "guardrail_note": note,
+            "guardrail_violations": violations,
+            "tools": tools_used,
+            "tool_calls": tool_calls,
             "latency_ms": res.get("latency_ms") or int((time.time() - t0) * 1000),
             "tokens_in": res.get("tokens_in") or 0,
             "tokens_out": res.get("tokens_out") or 0,
@@ -1376,9 +1658,12 @@ def run_agent_eval(conn, n: int = 30, use_llm: bool = True,
                      if r["groundedness"] is not None]
     demo = [r for r in results if r["kind"] == "demo"]
     adv = [r for r in results if r["kind"] == "adversarial"]
+    all_viol = [v for r in results for v in r.get("guardrail_violations", [])]
+    n_tp = sum(1 for v in all_viol if v["verdict"] == "true_positive")
     return {
         "n_tasks": n_tasks,
         "llm": llm_state,
+        "code": code_fingerprint(),
         "success_rate": _mean([1.0 if r["success"] else 0.0 for r in results]),
         "success_rate_demo": _mean([1.0 if r["success"] else 0.0 for r in demo]),
         "success_rate_adversarial": _mean([1.0 if r["success"] else 0.0 for r in adv]),
@@ -1392,6 +1677,10 @@ def run_agent_eval(conn, n: int = 30, use_llm: bool = True,
         "tokens_out_mean": _mean([r["tokens_out"] for r in results]),
         "tokens_total_mean": _mean([r["tokens_in"] + r["tokens_out"] for r in results]),
         "flags_histogram": _histogram([f for r in results for f in r["flags"]]),
+        "guardrail_precision": (round(n_tp / len(all_viol), 4)
+                                if all_viol else None),
+        "guardrail_verdicts": _histogram([v["verdict"] for v in all_viol]),
+        "n_guardrail_violations": len(all_viol),
         "tasks": results,
     }
 
@@ -1413,6 +1702,7 @@ def run_guardrail_evidence(conn, agent_results: Optional[Dict[str, Any]] = None
     if gr is None:
         return {"error": "app.guardrails not importable"}
     cases: List[Dict[str, Any]] = []
+    tasks = {t["id"]: t for t in (agent_results or {}).get("tasks", [])}
 
     # ---- case 1: budget refusal ----------------------------------------
     pid = "B0B5LSR63C"          # Sony 77" OLED TV, $3,596 > $2,000 session cap
@@ -1421,22 +1711,25 @@ def run_guardrail_evidence(conn, agent_results: Optional[Dict[str, Any]] = None
     price = float(row["price"]) if row else 0.0
     budget = 2000.0
     budget_res = gr.BudgetGuard(budget).check(price)
+    adv2 = tasks.get("adv-2")
     cases.append({
         "case": "budget refusal",
-        "guard": "BudgetGuard / checkout_cart",
-        "before": f"cart total ${price:,.2f} (session budget ${budget:,.2f})",
-        "after": budget_res["detail"],
-        "flags": budget_res["flags"],
+        "guard": "BudgetGuard + checkout_cart",
+        "before": (f"cart total ${price:,.2f} (session budget ${budget:,.2f})"
+                   + (f"\n\nagent answer:\n{adv2['answer']}" if adv2 else "")),
+        "after": (budget_res["detail"]
+                  + (f"\n\n[Note: {adv2['guardrail_note']}]" if adv2
+                     and adv2.get("guardrail_note") else "")),
+        "flags": (sorted(set(budget_res["flags"] + (adv2 or {}).get("flags", [])))),
         "ok": budget_res["ok"],
-        "artifact": (f"checkout_cart returns status='refused' with "
-                     f"reason=\"Checkout total ${price:,.2f} exceeds session budget "
-                     f"${budget:,.2f} — remove items or raise the cap\"; the agent "
-                     f"relays it and the turn carries the 'budget_exceeded' flag."),
+        "artifact": ("checkout_cart returns status='refused' with "
+                     "reason=\"Checkout total $3,596.00 exceeds session budget "
+                     "$2,000.00 — remove items or raise the cap\"; the agent "
+                     "relays the refusal verbatim and the turn carries the "
+                     "'budget_exceeded' flag."),
     })
 
     # ---- case 2: unverified claim ---------------------------------------
-    # Take a real price from the catalogue, corrupt it, and run it through the
-    # exact verifier the agent uses.
     try:
         real = conn.execute(
             "SELECT product_id,title,price FROM products "
@@ -1451,13 +1744,17 @@ def run_guardrail_evidence(conn, agent_results: Optional[Dict[str, Any]] = None
         honest = (f"The Beats Studio3 (B07Q39HCK1) costs ${float(real['price']):,.2f} "
                   f"and is rated 4.7 stars.")
         honest_res = gr.ClaimVerifier().verify(conn, honest, cites)
-        wrong = (f"The Beats Studio3 (B07Q39HCK1) costs $199.99 and is rated 4.9 stars.")
+        wrong = "The Beats Studio3 (B07Q39HCK1) costs $199.99 and is rated 4.9 stars."
         wrong_res = gr.ClaimVerifier().verify(conn, wrong, cites)
+        adv4 = tasks.get("adv-4")
         cases.append({
             "case": "unverified claim",
             "guard": "ClaimVerifier",
-            "before": wrong,
-            "after": wrong_res["detail"],
+            "before": (wrong + (f"\n\nreal agent turn (adv-4):\n{adv4['answer']}"
+                               if adv4 else "")),
+            "after": (wrong_res["detail"]
+                      + (f"\n\nreal agent note: [Note: {adv4['guardrail_note']}]"
+                         if adv4 and adv4.get("guardrail_note") else "")),
             "flags": wrong_res["flags"],
             "ok": wrong_res["ok"],
             "artifact": ("agent.py appends the verifier detail to the answer as "
@@ -1474,27 +1771,37 @@ def run_guardrail_evidence(conn, agent_results: Optional[Dict[str, Any]] = None
     gate_good = gr.CitationGate().check(answer_with_claims, [
         {"product_id": "B09XS7JWHH", "field": "price", "value": 348.0,
          "quote": "Sony WH-1000XM5"}])
+    adv3 = tasks.get("adv-3")
     cases.append({
         "case": "citation gate rejection",
         "guard": "CitationGate",
-        "before": answer_with_claims + "   [0 citations]",
+        "before": (answer_with_claims + "   [0 citations]"
+                   + (f"\n\nreal agent turn (adv-3) answered with "
+                      f"{adv3['n_citations']} citations and no factual claim"
+                      if adv3 else "")),
         "after": gate_bad["detail"],
         "flags": gate_bad["flags"],
         "ok": gate_bad["ok"],
         "artifact": ("an answer with factual claims but no citations is rejected "
                      "and the 'no_citations' flag is raised; with one citation "
-                     "the same answer passes."),
+                     "the same answer passes.  In the live run the agent "
+                     "answered a non-existent product with *no* factual claim, "
+                     "so the gate correctly stayed silent."),
         "control": {"answer": answer_with_claims + "   [1 citation]",
                     "detail": gate_good["detail"], "ok": gate_good["ok"]},
     })
 
     # ---- real observed flags from the agent run --------------------------
     observed = []
-    if agent_results:
-        for t in agent_results.get("tasks", []):
-            if t.get("flags"):
-                observed.append({"id": t["id"], "flags": t["flags"]})
-    return {"cases": cases, "observed_flags": observed}
+    for t in (agent_results or {}).get("tasks", []):
+        if t.get("flags"):
+            observed.append({"id": t["id"], "flags": t["flags"],
+                             "note": t.get("guardrail_note", "")[:300],
+                             "violations": t.get("guardrail_violations", [])})
+    return {"cases": cases, "observed_flags": observed,
+            "precision": (agent_results or {}).get("guardrail_precision"),
+            "verdicts": (agent_results or {}).get("guardrail_verdicts"),
+            "n_violations": (agent_results or {}).get("n_guardrail_violations")}
 
 
 # --------------------------------------------------------------------------- #
@@ -1537,26 +1844,38 @@ def build_report(retrieval: Optional[Dict[str, Any]] = None,
         di = retrieval["dense_index"]
         L.append(f"- queries evaluated: **{retrieval['n_queries']}** "
                  f"(random sample, seed `{retrieval['seed']}`)")
-        L.append(f"- dense index: **partial index ({di['n_vectors']:,}/{di['catalogue_size']:,} "
-                 f"products embedded = {di['coverage_pct']}%)** "
-                 f"(snapshot source: `{di['source']}`)")
+        L.append(f"- dense index: **partial index ({di['n_vectors']:,}/"
+                 f"{di.get('embeddable_size', 0):,} embeddable products embedded = "
+                 f"{di.get('coverage_of_embeddable_pct')}%**; "
+                 f"{di['n_vectors']:,}/{di['catalogue_size']:,} = {di['coverage_pct']}% "
+                 f"of the whole catalogue (snapshot source: `{di['source']}`)")
         L.append(f"- constraint pre-filter active on "
-                 f"**{retrieval['prefilter']['n_queries_with_active_prefilter']}** "
-                 f"queries ({retrieval['prefilter']['pct']}%)")
+                 f"**{retrieval['prefilter'].get('n_queries_with_hard_constraint')}** "
+                 f"queries ({retrieval['prefilter'].get('pct')}%)")
+        rc = retrieval.get("reachable_ceiling") or {}
+        if rc:
+            L.append(f"- **recall ceiling**: only "
+                     f"{rc.get('n_gold_rows_reachable')}/{rc.get('n_gold_rows')} "
+                     f"({_fmt(100.0 * rc['n_gold_rows_reachable'] / max(1, rc['n_gold_rows']), 1)}%) "
+                     f"of the gold products are *reachable* at all "
+                     f"(mean per-query reachable fraction "
+                     f"**{_fmt(rc.get('mean_fraction_of_gold_reachable'))}**)")
         L.append(f"- lexicon used for parsing: `{retrieval['lexicon']}`")
         L.append("")
         L.append("### 1.1 Main arms (full sample)")
         L.append("")
         L.extend(_arm_table(retrieval["arms"],
-                             ["lexical", "dense", "hybrid_no_rerank", "hybrid",
+                             ["lexical", "lexical_prefilter", "lexical_fixed",
+                              "dense", "hybrid_no_rerank", "hybrid",
                               "hybrid_prefilter", "production"]))
         L.append("")
         L.append("95% bootstrap CI of the mean (2000 resamples):")
         L.append("")
         L.append("| arm | Recall@10 [95% CI] | nDCG@10 [95% CI] |")
         L.append("|---|---|---|")
-        for name in ["lexical", "dense", "hybrid_no_rerank", "hybrid",
-                     "hybrid_prefilter", "production"]:
+        for name in ["lexical", "lexical_prefilter", "lexical_fixed", "dense",
+                     "hybrid_no_rerank", "hybrid", "hybrid_prefilter",
+                     "production"]:
             a = retrieval["arms"].get(name, {})
             r10 = a.get("recall@10")
             n10 = a.get("ndcg@10")
@@ -1584,7 +1903,8 @@ def build_report(retrieval: Optional[Dict[str, Any]] = None,
                  f"**{sub.get('n_queries')}** of {retrieval['n_queries']}.")
         L.append("")
         L.extend(_arm_table(sub.get("arms", {}),
-                             ["lexical", "dense", "hybrid_no_rerank", "hybrid",
+                             ["lexical", "lexical_prefilter", "lexical_fixed",
+                              "dense", "hybrid_no_rerank", "hybrid",
                               "hybrid_prefilter", "production"]))
         L.append("")
         L.append("### 1.4 Category breakdown (hybrid arm, top 8 by query count)")
@@ -1658,17 +1978,29 @@ def build_report(retrieval: Optional[Dict[str, Any]] = None,
                  f"out **{_fmt(agent['tokens_out_mean'], 1)}**, "
                  f"total **{_fmt(agent['tokens_total_mean'], 1)}**")
         L.append(f"- mean citations per turn: **{_fmt(agent['mean_citations'], 1)}**")
+        bf = [t.get("budget_flow") or {} for t in agent["tasks"]]
+        bf = [b for b in bf if b.get("has_budget")]
+        if bf:
+            ok_b = sum(1 for b in bf if b.get("tool_saw_budget"))
+            L.append(f"- budget survival (the tool received the user's budget, "
+                     f"not just the LLM's paraphrase): **{ok_b}/{len(bf)}** turns")
         L.append(f"- guardrail flags raised: `{agent['flags_histogram']}`")
+        if agent.get("n_guardrail_violations"):
+            L.append(f"- ClaimVerifier precision on this run: "
+                     f"**{_fmt(agent.get('guardrail_precision'))}** "
+                     f"({agent['n_guardrail_violations']} flagged claim(s) — "
+                     f"verdicts: `{agent.get('guardrail_verdicts')}`)")
         L.append("")
         L.append("| id | kind | task | success | citations | claims | grounded | "
-                 "flags | latency ms | tok in | tok out |")
-        L.append("|---|---|---|---|---|---|---|---|---|---|---|")
+                 "flags | tools | latency ms | tok in | tok out |")
+        L.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
         for t in agent["tasks"]:
             L.append(
                 f"| {t['id']} | {t['kind']} | {_md_escape(t['query'][:64])} | "
                 f"{'✅' if t['success'] else '❌'} | {t['n_citations']} | "
                 f"{t['n_claims']} | {_fmt(t['groundedness'])} | "
-                f"`{','.join(t['flags']) or '-'}` | {t['latency_ms']} | "
+                f"`{','.join(t['flags']) or '-'}` | "
+                f"`{','.join(t.get('tools', [])) or '-'}` | {t['latency_ms']} | "
                 f"{t['tokens_in']} | {t['tokens_out']} |")
         L.append("")
 
@@ -1693,8 +2025,14 @@ def build_report(retrieval: Optional[Dict[str, Any]] = None,
         if guardrails.get("observed_flags"):
             L.append("Flags actually observed during the agent run:")
             L.append("")
+            L.append("| turn | flags | guardrail note | violation verdicts |")
+            L.append("|---|---|---|---|")
             for o in guardrails["observed_flags"]:
-                L.append(f"- `{o['id']}`: `{o['flags']}`")
+                verdicts = "; ".join(
+                    f"{v['kind']}={v['value']} -> {v['verdict']}"
+                    for v in o.get("violations", []))
+                L.append(f"| `{o['id']}` | `{','.join(o['flags'])}` | "
+                         f"{_md_escape(o.get('note', ''))[:160]} | {verdicts or '-'} |")
             L.append("")
 
     L.append("---")
@@ -1702,6 +2040,16 @@ def build_report(retrieval: Optional[Dict[str, Any]] = None,
     L.append("Reproduce: `cd demo && python -m app.eval --all` "
              "(set `DEEPSEEK_API_KEY` for the live-LLM agent suite).")
     L.append("")
+    code = (retrieval or {}).get("code") or (agent or {}).get("code")
+    if code:
+        L.append("Code fingerprint (the numbers are only reproducible against "
+                 "this code):")
+        L.append("")
+        L.append(f"- git HEAD: `{code.get('git_head')}` "
+                 f"(working tree dirty: `{code.get('git_dirty')}`)")
+        L.append(f"- module hashes (sha256, first 12): "
+                 f"`{code.get('modules')}`")
+        L.append("")
     return "\n".join(L)
 
 
@@ -1783,7 +2131,24 @@ def main(argv: Sequence[str]) -> int:
         return _selftest()
 
     conn = _connect()
-    results: Dict[str, Any] = {}
+    results: Dict[str, Any] = {"code": code_fingerprint()}
+    # `--load PATH` re-uses a previous run's sections (e.g. the expensive
+    # retrieval sweep) so a section can be re-measured on its own.
+    for i, a in enumerate(argv):
+        path = None
+        if a.startswith("--load="):
+            path = a.split("=", 1)[1]
+        elif a == "--load" and i + 1 < len(argv):
+            path = argv[i + 1]
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    prev = json.load(fh)
+                for k, v in prev.items():
+                    results.setdefault(k, v)
+                log.info("loaded previous results from %s", path)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("could not load %s: %s", path, exc)
     try:
         if "--retrieval" in argv or "--all" in argv:
             build_eval_set(conn, limit=500)
@@ -1796,6 +2161,9 @@ def main(argv: Sequence[str]) -> int:
             results["agent"] = run_agent_eval(conn, n=10, use_llm=use_llm)
             results["guardrails"] = run_guardrail_evidence(conn, results["agent"])
         if "--report" in argv or "--all" in argv:
+            for key in ("retrieval", "agent"):
+                if isinstance(results.get(key), dict):
+                    results[key].setdefault("code", results["code"])
             md = build_report(results.get("retrieval"), results.get("constraints"),
                               results.get("agent"), results.get("guardrails"))
             (DEMO_ROOT / "eval_report.md").write_text(md, encoding="utf-8")
@@ -1803,9 +2171,11 @@ def main(argv: Sequence[str]) -> int:
         else:
             print(json.dumps(results, indent=2, default=str)[:20000])
         out = None
-        for a in argv:
+        for i, a in enumerate(argv):
             if a.startswith("--json="):
                 out = a.split("=", 1)[1]
+            elif a == "--json" and i + 1 < len(argv):
+                out = argv[i + 1]
         if out:
             with open(out, "w", encoding="utf-8") as fh:
                 json.dump(results, fh, indent=2, default=str)

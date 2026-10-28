@@ -101,13 +101,22 @@ _LIMIT_ECHO = re.compile(
     r"(?i)\b(?:under|below|sub[-\s]?|less than|within|up to|at most|a maximum of|"
     r"max(?:imum)?|or less|or cheaper|budget(?:\s+cap)?|cap of|cheaper than|"
     r"no more than|not more than|session cap|starting at|from)\s*"
-    r"(?:usd|\$|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)")
+    r"[*_\s]*(?:usd|\$|rs\.?|inr)?\s*[*_\s]*([0-9][0-9,]*(?:\.[0-9]+)?)")
 # A price *range* ("the $1,200-1,500 band") is a budget band, not a price.
 _PRICE_RANGE = re.compile(
-    r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[-–—~]\s*"
+    r"[*_\s]*(?:\$|usd|rs\.?|inr)?\s*[*_\s]*[0-9][0-9,]*(?:\.[0-9]+)?\s*[-–—~]\s*"
     r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?"
     r"|\bbetween\s+(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s+and\s+"
     r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?", re.I)
+
+
+# A derived comparison ("~$49 cheaper than the other") is a comparison between
+# two cited prices, not a claim about a price.
+_DERIVED_DIFF = re.compile(
+    r"(?i)(?:~|about|approx(?:imately)?\s+)?(?:usd|\$|rs\.?|inr)?\s*[*_\s]*"
+    r"[0-9][0-9,]*(?:\.[0-9]+)?\s*[*_\s]*"
+    r"(?:cheaper|more expensive|less expensive|dearer|pricier|higher|lower|"
+    r"above|below|less|more)\b")
 
 
 class ClaimVerifier:
@@ -116,9 +125,12 @@ class ClaimVerifier:
     RATING_TOL = 0.15
     DISC_TOL = 2.0      # percentage points
 
-    def verify(self, conn, answer: str, citations: list[dict]) -> dict:
+    def verify(self, conn, answer: str, citations: list[dict],
+               cart_total: float | None = None) -> dict:
         known_prices, known_ratings, known_discounts = self._known_values(
             conn, citations)
+        if cart_total:
+            known_prices = list(known_prices) + [float(cart_total)]
         # a derived difference ("~$49 cheaper") between two cited prices is a
         # legitimate comparison, not a fabricated price
         derived = [abs(a - b) for i, a in enumerate(known_prices)
@@ -128,6 +140,7 @@ class ClaimVerifier:
         # before looking for price claims
         price_text = _LIMIT_ECHO.sub(" ", answer or "")
         price_text = _PRICE_RANGE.sub(" ", price_text)
+        price_text = _DERIVED_DIFF.sub(" ", price_text)
         for v in self._nums(_RUPEE.findall(price_text)):
             if not any(abs(v - k) <= max(self.PRICE_TOL * abs(k), self.PRICE_ABS)
                        for k in known_prices):
@@ -245,7 +258,7 @@ def run_post_guards(conn, answer: str, citations: list[dict],
     details: list[str] = []
     results: dict = {}
     for name, res in (
-        ("claim", ClaimVerifier().verify(conn, answer, citations)),
+        ("claim", ClaimVerifier().verify(conn, answer, citations, cart_total=cart_total)),
         ("citation", CitationGate().check(answer, citations)),
     ):
         results[name] = res

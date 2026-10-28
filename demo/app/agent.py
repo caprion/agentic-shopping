@@ -48,7 +48,7 @@ WALL_CLOCK_S = 60.0
 MEMORY_TURNS = 6
 
 SYSTEM_PROMPT = (
-    "You are Aria, a careful shopping assistant for an Indian e-commerce "
+    "You are Aria, a careful shopping assistant for an e-commerce marketplace "
     "prototype. Rules you MUST follow:\n"
     "1. Answer ONLY from tool results — never invent a price, rating, discount, "
     "stock status, or review.\n"
@@ -60,7 +60,7 @@ SYSTEM_PROMPT = (
     "label the result as an external result with its URL — never pretend it is "
     "in the catalogue.\n"
     "5. checkout_cart is a MOCK (no real payment) and may return "
-    "status=refused if the total exceeds the ₹50,000 session budget — relay "
+    "status=refused if the total exceeds the $2,000 session budget — relay "
     "that clearly.\n"
     "6. get_price_history returns SIMULATED data — label it as simulated, never "
     "as real price history.\n"
@@ -368,7 +368,7 @@ def _selftest() -> None:
     print("=== latency_ms ===", res["latency_ms"])
     print("=== tokens in/out ===", res["tokens_in"], "/", res["tokens_out"])
     print("=== product_ids ===", res["product_ids"])
-    assert "₹4999" in res["answer"] or "4999" in res["answer"], "grounded price missing"
+    assert "4999" in res["answer"], "grounded price missing"
     conn.close()
     print("\nselftest OK")
 

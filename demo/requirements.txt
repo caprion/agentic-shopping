@@ -1,0 +1,20 @@
+# Aria — agentic shopping prototype
+# Python 3.12+. Everything here is optional except the first three: the demo
+# degrades to lexical-only retrieval + a deterministic offline agent if the
+# embedding models are unavailable.
+
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+
+# data pipeline (offline ingestion + evaluation)
+pandas>=2.0
+pyarrow>=14.0
+
+# retrieval
+sentence-transformers>=3.0        # BAAI/bge-small-en-v1.5, CLIP ViT-B/32
+lancedb>=0.13                     # embedded vector store (numpy .npy fallback)
+
+# optional
+torch>=2.0                        # pulled in by sentence-transformers
+pillow>=10.0                      # image handling for /api/image

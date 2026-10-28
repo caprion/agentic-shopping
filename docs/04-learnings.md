@@ -92,12 +92,12 @@ answer.
 
 **Why constraint parsing is code and not a prompt.** `parse_constraints` is regex plus a lexicon built
 from the catalogue (50,204 rows in `lexicon`) plus a hand-written Hinglish map. It handles "under 3000",
-"₹3000 se kam", "at least 4.5 stars", "1.5 lakh", negations ("not Samsung", "no plastic") and sort
+"3000 se kam" (Hinglish), "at least 4.5 stars", "1.5 lakh", negations ("not Samsung", "no plastic") and sort
 intents ("cheapest", "saste"). We chose determinism for four reasons: it sits on the critical path of
 every turn; it costs nothing per query; the same query must produce the same filter or the evaluation is
 meaningless; and it must work with no network and no API key. **The rule we landed on: the LLM phrases
 the answer, the code computes the filter.** The LLM still owns the explanation of the filter ("I
-filtered to under ₹3,000 and brand in {Sony}") — but only because the code told it what it did.
+filtered to under $300 and brand in {Sony}") — but only because the code told it what it did.
 
 **And the honest measurement.** Our first retrieval run on the Amazon Shopping Queries (ESC) gold set
 looked bad, and most of the badness was our own instrumentation:
@@ -211,9 +211,9 @@ sets `price_mrp = price` for all 101,417 priced rows: discount is structurally 0
 be a truthful claim from our data. We did not fabricate one — the price-history tool returns a series
 explicitly labelled `simulated`. Second, there is no public Amazon order stream, so "people bought these
 together" is inferred from co-ratings, and the personalisation profile is a prior, not a fact about a
-real shopper in our product. Third, the catalogue is USD while the personas are ₹ — the default session
+real shopper in our product. Third, the catalogue and the personas are now both USD — the default session
 budget is $2,000 while the flagship demo script says "under 3000". Our claim verifier is deliberately
-currency-agnostic (it accepts ₹ and $), but the *budget* should not be; that inconsistency is on the
+currency-agnostic (it accepts ₹ and $), but the *budget* should not be; that inconsistency was on the
 fix list.
 
 **What ingestion actually cost.** `bge-small-en-v1.5` encodes at ≈40 texts/s on this box, so 195k
@@ -285,7 +285,7 @@ on a claim violation, remove the offending sentence and re-verify. Drop the simu
 the answer path and keep it in a clearly-labelled panel. Sign up one real merchant with a real
 price/stock feed — there is no way to test the trust claim against our own mock catalogue.
 
-**Next 90 days.** Model pincode-level serviceability, even as a stub, because "deliver to Pune by
+**Next 90 days.** Model pincode-level serviceability, even as a stub, because "deliver to
 Friday" cannot be answered truthfully without it and it is the India-specific, hard-to-copy data. Add a
 second merchant and a genuine cross-merchant comparison. Expose the verification layer as an API other
 agents can call — the first revenue-shaped version of the wedge in [05-moats](05-moats.md). Publish the

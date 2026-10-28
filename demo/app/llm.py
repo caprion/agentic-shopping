@@ -434,9 +434,9 @@ def _grounded_answer(tool_results: list[dict], query: str) -> str:
             if brand:
                 bits.append(f"by {brand}")
             if price is not None:
-                bits.append(f"₹{price}")
+                bits.append(f"${price}")
                 if mrp is not None and float(mrp) > float(price):
-                    bits.append(f"(MRP ₹{mrp})")
+                    bits.append(f"(list price ${mrp})")
             if rating is not None:
                 bits.append(f"rated {rating}★")
                 if rc is not None:
@@ -586,7 +586,7 @@ def _selftest() -> None:
     print("\n=== turn 2 (grounded answer) ===")
     print(second["text"])
     print("\nflags:", second["flags"])
-    assert "₹4999" in second["text"] and "4.6" in second["text"] \
+    assert "4999" in second["text"] and "4.6" in second["text"] \
         and "Sony" in second["text"], "MockLLM must copy facts verbatim"
     print("\nselftest OK")
 

@@ -428,6 +428,11 @@
         d.flags.map(function (f) { return "<span class='tag flag'>" + esc(f) + "</span>"; }).join("") +
         "</div>");
     }
+    if (d.tools && d.tools.length) {
+      parts.push("<span class='section-label'>Tools</span><div class='tag-list'>" +
+        d.tools.map(function (t) { return "<span class='tag'>" + esc(t) + "</span>"; }).join("") +
+        "</div>");
+    }
     parts.push("<div class='kv'><span class='k'>latency</span><span class='v'>" +
       (d.latency_ms == null ? "—" : d.latency_ms + " ms") + "</span></div>");
     parts.push("<div class='kv'><span class='k'>tokens</span><span class='v'>" +
@@ -436,10 +441,10 @@
       parts.push("<div class='kv'><span class='k'>products</span><span class='v'>" +
         d.product_ids.length + " cited</span></div>");
     }
-    if (d.recent_citations && d.recent_citations.length) {
-      parts.push("<div class='kv'><span class='k'>citations</span><span class='v'>" +
-        d.recent_citations.length + "</span></div>");
-    }
+    var nCite = d.citations_count != null ? d.citations_count
+      : (d.recent_citations || []).length;
+    parts.push("<div class='kv'><span class='k'>citations</span><span class='v'>" +
+      nCite + "</span></div>");
     el.sessionBody.innerHTML = parts.join("") || "<div class='empty'>No session yet</div>";
   }
 

@@ -20,7 +20,7 @@ value, quote}`. Answers cite inline `[p1]` / `[r12]` matching each citation `mar
 
 ## B3 must handle
 `ok:false` tool results (agent still answers); `llm_fallback` / `mock_llm` flags
-(offline); `status:"refused"` checkout over ₹50,000; simulated price history;
+(offline); `status:"refused"` checkout over the $2,000 session cap; simulated price history;
 `run_turn(stream=True)` returns `{"type":"stream","events":<generator>}`.
 
 Self-test: `python -m app.<module> --selftest`

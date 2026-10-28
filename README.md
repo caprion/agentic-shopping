@@ -82,7 +82,38 @@ lexical-only retrieval; no LLM key → templated grounded answers. The demo neve
 
 ---
 
-## 4. Data (all public, all real)
+## 4. Measured results (not claims)
+
+Retrieval on the **Amazon Shopping Queries** gold set (500 queries, seed `20261028`), against a
+194,873-product catalogue. Full method, CIs and caveats: [docs/03-evaluation.md](docs/03-evaluation.md);
+raw tables: [demo/eval_report.md](demo/eval_report.md).
+
+| Arm | Recall@5 | Recall@10 | Recall@20 | nDCG@10 | MRR@10 |
+|---|---|---|---|---|---|
+| Lexical only (FTS5 BM25) | 0.072 | 0.110 | 0.151 | 0.067 | 0.065 |
+| Dense only (partial index) | 0.113 | 0.153 | 0.193 | 0.091 | 0.079 |
+| Hybrid (RRF, no rerank) | 0.106 | **0.164** | 0.218 | 0.095 | 0.082 |
+| **Hybrid + cross-encoder** | **0.146** | **0.190** | 0.218 | **0.116** | **0.104** |
+
+Read it as: **RRF fusion beats either channel alone (+5.4 pts Recall@10 over lexical), and the
+cross-encoder rerank adds another +2.6 pts Recall@10 and +2.2 pts nDCG@10 on top of fusion.**
+
+Two caveats we will not hide: the catalogue has **no price for 48% of its products**, and the gold set
+is drawn from that same pool — so ~45% of gold products are unreachable by *any* arm and every recall
+number is measured against a ceiling far below 1.0; and the dense arm was measured against an index
+that was still growing, so it is a lower bound.
+
+The guardrails are not decoration — they changed outcomes in the recorded runs:
+
+| Case | What happened |
+|---|---|
+| Cart total $3,596 vs. $2,000 cap | checkout **refused** (`budget_exceeded`), no order created |
+| Answer quoting a fabricated $199.99 / 4.9★ | flagged `unverified_claim`, value re-checked against the DB row and corrected to $258.99 / 4.7★ |
+| Answer with factual claims and zero citations | rejected by the `CitationGate` |
+
+---
+
+## 5. Data (all public, all real)
 
 | Source | Used for | Link |
 |---|---|---|
@@ -99,13 +130,15 @@ pipeline in `demo/ingest/` is deterministic and idempotent.
 
 ---
 
-## 5. Honest limitations
+## 6. Honest limitations
 
 These are real, and worth reading before the demo:
 
-* The catalogue is **Amazon US** (Electronics, Musical Instruments, Industrial & Scientific) — prices
-  are USD. The **personas** are India-flavoured (Hinglish, ₹, delivery-by-Friday) because that is
-  where agentic commerce is most interesting, but the catalogue is not Indian retail.
+* The catalogue is **Amazon US** (Electronics, Musical Instruments, Industrial & Scientific) and every
+  price in the demo is **USD**. Code-mixed / Hinglish *queries* are first-class (they are parsed and
+  answered), but the inventory is US retail — see [docs/06-emerging-markets.md](docs/06-emerging-markets.md)
+  for what a real emerging-market build would have to add (pincode serviceability, COD, vernacular ASR/TTS,
+  authenticity verification).
 * Real **transactions** come from Olist (Brazil), not Amazon — Amazon exposes no public order stream.
   They populate customer/behaviour priors, not the product catalogue.
 * Discounts/MRP are **not** modelled: the Amazon 2023 metadata has no list price, and we do not
@@ -116,7 +149,7 @@ These are real, and worth reading before the demo:
 
 ---
 
-## 6. Research index
+## 7. Research index
 
 | Dossier | Question it answers |
 |---|---|
@@ -129,7 +162,7 @@ These are real, and worth reading before the demo:
 
 ---
 
-## 7. How the work was run
+## 8. How the work was run
 
 The research and the build were parallelised across independent AI agents against a **written
 contract** (`demo/CONTRACT.md`) — schema, module signatures, file ownership — so the branches could
@@ -141,7 +174,7 @@ reusable for any "build a thing from many agents" project.
 
 ---
 
-## 8. Licence
+## 9. Licence
 
 Code: Apache-2.0 (see `LICENSE`).
 Data stays with its original licences — the Amazon Reviews datasets are research-use, Olist is
