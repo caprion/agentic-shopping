@@ -14,10 +14,10 @@ Do this:
 4. Note the **evaluation problem**: how would you measure quality of an agentic shopping answer (relevance, faithfulness, conversion, regret, CSAT, hallucinated attributes)? Cite how Amazon/others measure it.
 5. Capture **pricing/tech-constraint reality**: Amazon's catalogue scale (~hundreds of millions of ASINs), the catalogue-graph / product-attribute normalisation problem, review corpora, "Amazon Product Advertising API" and the affiliate/search API constraints an external builder faces.
 
-Output requirements:
+Output requirements (the write-up is public and must read as neutral research, not as job-prep material):
 - Write a single well-structured markdown file to `/home/sumit/agentic-shopping/research/01-amazon-ai-shopping.md`.
 - Use tables. Cite every non-obvious claim with a URL and an access date.
-- Include a section "10 product claims we can safely make in an interview" and "5 things a candidate would be wrong to claim".
+- Include a section "Ten claims the public evidence actually supports" and "Five common misconceptions worth challenging".
 - Include an ASCII architecture sketch of how Amazon's shopping assistant is believed to work (product graph + retrieval + LLM + tools + ranking).
 - Aim for 3000-5000 words. Do not pad; be specific.
 - Do not write anything outside that file except tiny notes if needed. End with a 10-line summary of your key findings.

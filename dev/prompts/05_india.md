@@ -1,4 +1,4 @@
-You are a market researcher focused on **India / emerging markets**, which is the stated focus of the Amazon Principal PM role (Agentic Shopping, Bengaluru, emerging markets, multilingual text & voice).
+You are a market researcher focused on **India / emerging markets**: multilingual text & voice shopping, and what it takes to make agentic commerce trustworthy there.
 
 Research and write:
 1. **Amazon in India**: Rufus in India (launch, languages, adoption metrics), Amazon's "Alexa+" in India, "Amazon Haul", "Amazon Pay UPI", same-day/rapid delivery, Amazon's share of Indian e-commerce vs Flipkart (Flipkart/Walmart), Amazon's India investment (~$8bn+), Fresh/Amazon Now, and the multilingual/vernacular search reality (Hinglish, regional languages, voice share).
@@ -8,4 +8,4 @@ Research and write:
 5. **Voice & multilingual AI shopping**: what's proven (Hinglish ASR quality, code-mixed text queries), what tech works (Whisper variants, Indic languages), what the failure modes are (ASR errors on product names, transliteration, price/brand name confusion).
 6. **What this means for a demo**: a realistic India-flavoured demo persona (e.g. "I need a gift for my brother's birthday under ₹3000, delivery to Pune by Friday, he likes photography") — list 5 concrete demo scripts that showcase the *agentic* value (not just search), plus 5 demo scripts that would expose weaknesses.
 
-Output: write `/home/sumit/agentic-shopping/research/05-india-emerging-markets.md` — 2500-4000 words, tables, URLs + access dates, and a final section "Implications for the Amazon Principal PM role" that a candidate could use in interviews. End with a 10-line summary.
+Output: write `/home/sumit/agentic-shopping/research/05-india-emerging-markets.md` — 2500-4000 words, tables, URLs + access dates, and a final section "Implications for building agentic shopping in emerging markets". End with a 10-line summary.

@@ -1,0 +1,41 @@
+# ---- data & regenerable artifacts (see demo/ingest/build_db.py) -------------
+data/
+demo/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.npy
+*.parquet
+*.jsonl.gz
+*.csv.gz
+*.arrow
+*.feather
+*.lance/
+models/
+.cache/
+
+# ---- python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- secrets ---------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- os / editor -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
