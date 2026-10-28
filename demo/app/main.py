@@ -361,6 +361,88 @@ def _empty_done(answer: str = "", flags: Optional[list] = None) -> Dict[str, Any
             "flags": flags or [], "latency_ms": 0, "tokens_in": 0, "tokens_out": 0}
 
 
+def _parse_constraints(message: str) -> Dict[str, Any]:
+    """Parsed constraints for the user message (USD amounts, deterministic).
+
+    Uses B1's ``retrieval.parse_constraints`` when available (it understands
+    Hinglish/vernacular phrasing), and falls back to the offline parser in
+    ``app.tools`` so the panel is never empty for a simple price query.
+    """
+    out: Dict[str, Any] = {}
+    ret = _try_import("app.retrieval")
+    if ret is not None and hasattr(ret, "parse_constraints"):
+        try:
+            out = ret.parse_constraints(message) or {}
+        except Exception as exc:  # noqa: BLE001
+            log.debug("parse_constraints failed: %s", exc)
+    if not out or not out.get("price_max") and not out.get("price_min"):
+        tools = _try_import("app.tools")
+        if tools is not None and hasattr(tools, "_local_constraints"):
+            try:
+                fallback = tools._local_constraints(message) or {}
+                for k, v in fallback.items():
+                    if v is not None and not out.get(k):
+                        out[k] = v
+            except Exception as exc:  # noqa: BLE001
+                log.debug("local constraint parse failed: %s", exc)
+    if not out.get("attributes"):
+        out.pop("attributes", None)
+    return out
+
+
+def _store_session_meta(conn, session_id: str, message: str,
+                        done: Optional[Dict[str, Any]] = None,
+                        tools: Optional[list] = None) -> Dict[str, Any]:
+    """Persist the parsed constraints + turn metrics for a session so the UI
+    transparency panel can render them (min $x / max $x, latency, tokens).
+
+    Stored in a B4-owned side table: ``app.agent`` re-persists ``sessions.state``
+    after the turn ends, which would otherwise clobber a write to that column.
+    Never raises.
+    """
+    constraints = _parse_constraints(message)
+    payload: Dict[str, Any] = {"constraints": constraints}
+    if done:
+        payload.update({
+            "latency_ms": done.get("latency_ms"),
+            "tokens_in": done.get("tokens_in") or 0,
+            "tokens_out": done.get("tokens_out") or 0,
+            "flags": done.get("flags") or [],
+            "citations": len(done.get("citations") or []),
+            "product_ids": done.get("product_ids") or [],
+        })
+    if tools:
+        payload["tools"] = list(tools)
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS b4_session_meta ("
+            " session_id TEXT PRIMARY KEY, payload TEXT, updated_ts REAL)")
+        conn.execute(
+            "INSERT OR REPLACE INTO b4_session_meta(session_id, payload, updated_ts)"
+            " VALUES(?,?,?)",
+            (session_id, json.dumps(payload, ensure_ascii=False), time.time()),
+        )
+        conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("session meta persist failed for %s: %s", session_id, exc)
+    return payload
+
+
+def _load_session_meta(conn, session_id: str) -> Dict[str, Any]:
+    """Read back the metadata stored by :func:`_store_session_meta`."""
+    try:
+        row = conn.execute(
+            "SELECT payload FROM b4_session_meta WHERE session_id=?",
+            (session_id,)).fetchone()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("session meta load failed for %s: %s", session_id, exc)
+        return {}
+    if not row:
+        return {}
+    data = _jload(row["payload"], {})
+    return data if isinstance(data, dict) else {}
+
+
 def _fallback_turn(conn, session_id: str, message: str) -> Iterator[Dict[str, Any]]:
     """Deterministic fallback when app.agent is not importable yet."""
     ret = _try_import("app.retrieval")
@@ -563,13 +645,30 @@ def create_app() -> FastAPI:
 
         if not stream:
             result = _usd_event(_run_agent_sync(conn, session_id, user_id, message))
+            meta = _store_session_meta(conn, session_id, message,
+                                       result if isinstance(result, dict) else None)
+            if isinstance(result, dict) and meta.get("constraints"):
+                result["constraints"] = meta["constraints"]
             conn.close()
             return result
 
         def gen() -> Iterator[str]:
+            tools: list = []
             try:
                 for event in _run_agent_stream(conn, session_id, user_id, message):
-                    yield _sse(_usd_event(event))
+                    ev = _usd_event(event)
+                    if isinstance(ev, dict):
+                        if ev.get("type") == "tool" and ev.get("name"):
+                            tools.append(ev["name"])
+                        elif ev.get("type") == "done":
+                            # Persist constraints + turn metrics *before* the
+                            # client sees "done" so the transparency panel can
+                            # render them.
+                            meta = _store_session_meta(
+                                conn, session_id, message, ev, tools)
+                            if meta.get("constraints"):
+                                ev["constraints"] = meta["constraints"]
+                    yield _sse(ev)
             finally:
                 try:
                     conn.close()
@@ -653,22 +752,36 @@ def create_app() -> FastAPI:
             _ensure_session(conn, session_id, None)
             state = _load_state(conn, session_id)
             cart = _cart_view(conn, session_id)
+            meta = _load_session_meta(conn, session_id)
         finally:
             conn.close()
         try:
             budget = float(state.get("budget") or DEFAULT_BUDGET)
         except (TypeError, ValueError):
             budget = DEFAULT_BUDGET
+        merged = dict(state.get("constraints") or {})
+        merged.update(meta.get("constraints") or {})
+        latency = state.get("latency_ms")
+        if latency is None:
+            latency = meta.get("latency_ms")
+        tokens_in = state.get("tokens_in") or meta.get("tokens_in") or 0
+        tokens_out = state.get("tokens_out") or meta.get("tokens_out") or 0
+        flags = list(state.get("flags") or []) or list(meta.get("flags") or [])
+        citations = state.get("recent_citations") or []
+        n_citations = len(citations) or meta.get("citations") or 0
+        product_ids = state.get("product_ids") or meta.get("product_ids") or []
         return {
             "session_id": session_id,
-            "constraints": state.get("constraints") or {},
-            "free_text": state.get("free_text") or "",
-            "flags": state.get("flags") or [],
-            "latency_ms": state.get("latency_ms"),
-            "tokens_in": state.get("tokens_in") or 0,
-            "tokens_out": state.get("tokens_out") or 0,
-            "product_ids": state.get("product_ids") or [],
-            "recent_citations": state.get("recent_citations") or [],
+            "constraints": merged,
+            "free_text": merged.get("free_text") or state.get("free_text") or "",
+            "flags": flags,
+            "latency_ms": latency,
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "product_ids": product_ids,
+            "recent_citations": citations,
+            "tools": meta.get("tools") or [],
+            "citations_count": n_citations,
             "last_hits": state.get("last_hits") or [],
             "cart": cart,
             "budget": budget,          # USD session cap ($2,000)

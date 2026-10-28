@@ -147,6 +147,23 @@ def check_guardrails() -> tuple:
     return "guardrails: $2,000 cap, $ messages, accepts $ and ₹"
 
 
+def check_claim_verifier() -> tuple:
+    """The verifier accepts $ and ₹, ignores budget echoes, still flags fakes."""
+    import app.guardrails as g
+
+    cites = [{"product_id": "B0X", "field": "price", "value": 309.99, "quote": "x"},
+             {"product_id": "B0Y", "field": "price", "value": 260.78, "quote": "y"}]
+    v = g.ClaimVerifier()
+    assert v.verify(None, "It costs $309.99 and $260.78.", cites)["ok"] is True
+    assert v.verify(None, "Nothing under $200 matched.", cites)["ok"] is True, \
+        "a budget echo must not be flagged"
+    assert v.verify(None, "The first is ~$49 cheaper than the second.",
+                    cites)["ok"] is True, "a derived difference must not be flagged"
+    bad = v.verify(None, "It costs $9,999.", cites)
+    assert bad["ok"] is False and bad["violations"], "a fabricated price must be flagged"
+    return "verifier: $ and ₹ accepted, echoes/differences tolerated, fakes flagged"
+
+
 def check_tools() -> tuple:
     import app.tools as t
 
@@ -313,6 +330,37 @@ def check_budget_guard_end_to_end() -> tuple:
     return "tools checkout refuses >$2,000 with a USD message"
 
 
+def check_session_constraints() -> tuple:
+    """The transparency panel must be able to show parsed constraints (in $).
+
+    ``app.agent`` re-persists ``sessions.state`` after a turn, so the parsed
+    constraints live in a B4-owned side table; check they round-trip and that
+    the price is a USD number.
+    """
+    import app.main as m
+
+    conn = m._connect()
+    try:
+        meta = m._store_session_meta(
+            conn, "b4-selftest-session",
+            "noise cancelling headphones under $200 with at least 4.5 stars",
+            {"latency_ms": 1234, "tokens_in": 10, "tokens_out": 20,
+             "flags": [], "citations": [{"product_id": "X"}],
+             "product_ids": ["X"]},
+            ["search_products"])
+        back = m._load_session_meta(conn, "b4-selftest-session")
+    finally:
+        conn.close()
+    assert back.get("constraints", {}).get("price_max") == 200.0, \
+        f"price_max not parsed as USD: {back.get('constraints')}"
+    assert back.get("constraints", {}).get("rating_min") == 4.5, \
+        "rating_min not parsed"
+    assert back.get("latency_ms") == 1234, "latency not persisted"
+    assert back.get("tools") == ["search_products"], "tool list not persisted"
+    assert back.get("citations") == 1, "citation count not persisted"
+    return "constraints+metrics round-trip via b4_session_meta"
+
+
 def run() -> list:
     results = []
     for name, fn in (
@@ -323,10 +371,12 @@ def run() -> list:
         ("demo_scripts", check_demo_scripts),
         ("footer", check_footer),
         ("guardrails", check_guardrails),
+        ("claim_verifier", check_claim_verifier),
         ("tools", check_tools),
         ("main", check_main),
         ("endpoints", check_endpoints),
         ("checkout_budget", check_checkout_budget),
+        ("session_constraints", check_session_constraints),
         ("catalogue_nonempty", check_catalogue_nonempty),
         ("scripts_satisfiable", check_scripts_satisfiable),
         ("compare_models_exist", check_compare_models_exist),

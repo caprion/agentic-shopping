@@ -101,6 +101,12 @@ _LIMIT_ECHO = re.compile(
     r"(?i)\b(?:under|below|less than|within|up to|max(?:imum)?|budget(?:\s+cap)?|"
     r"cap of|cheaper than|no more than|not more than|session cap)\s*"
     r"(?:usd|\$|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)")
+# A price *range* ("the $1,200-1,500 band") is a budget band, not a price.
+_PRICE_RANGE = re.compile(
+    r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*[-–—~]\s*"
+    r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?"
+    r"|\bbetween\s+(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s+and\s+"
+    r"(?:\$|usd|rs\.?|inr)?\s*[0-9][0-9,]*(?:\.[0-9]+)?", re.I)
 
 
 class ClaimVerifier:
@@ -117,8 +123,10 @@ class ClaimVerifier:
         derived = [abs(a - b) for i, a in enumerate(known_prices)
                    for b in known_prices[i + 1:]]
         violations: list[dict] = []
-        # strip limit echoes ("under $200") before looking for price claims
+        # strip limit echoes ("under $200") and price bands ("$1,200-1,500")
+        # before looking for price claims
         price_text = _LIMIT_ECHO.sub(" ", answer or "")
+        price_text = _PRICE_RANGE.sub(" ", price_text)
         for v in self._nums(_RUPEE.findall(price_text)):
             if not any(abs(v - k) <= max(self.PRICE_TOL * abs(k), self.PRICE_ABS)
                        for k in known_prices):
@@ -292,6 +300,15 @@ def _selftest() -> None:
           "| violations found:", len(bad["violations"]))
     print("ClaimVerifier accepts ₹ too:",
           ClaimVerifier().verify(conn, "It costs ₹348 and is rated 4.6★.", citations)["ok"] is True)
+    print("ClaimVerifier tolerates budget echoes:",
+          ClaimVerifier().verify(conn, "Nothing under $200 matched.", citations)["ok"] is True)
+    two = citations + [{"product_id": "B0GUARD0002", "field": "price", "value": 100.0,
+                        "quote": "Out-of-stock gadget"}]
+    print("ClaimVerifier tolerates derived differences:",
+          ClaimVerifier().verify(conn, "The first is ~$248 more than the second.",
+                                 two)["ok"] is True)
+    print("ClaimVerifier still flags a fabricated price:",
+          ClaimVerifier().verify(conn, "It costs $9,999.", citations)["ok"] is False)
     print("CitationGate no-citation rejected:",
           CitationGate().check("It costs $348 and is 4.6★.", [])["ok"] is False)
     conn.close()
