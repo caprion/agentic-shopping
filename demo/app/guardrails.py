@@ -98,8 +98,9 @@ _PERCENT_OFF = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*%\s*(?:off|discount)", re.I)
 # An amount that merely echoes a limit ("under $200", "budget cap $2,000") is
 # not a product-price claim and must not be flagged as unverified.
 _LIMIT_ECHO = re.compile(
-    r"(?i)\b(?:under|below|less than|within|up to|max(?:imum)?|budget(?:\s+cap)?|"
-    r"cap of|cheaper than|no more than|not more than|session cap)\s*"
+    r"(?i)\b(?:under|below|sub[-\s]?|less than|within|up to|at most|a maximum of|"
+    r"max(?:imum)?|or less|or cheaper|budget(?:\s+cap)?|cap of|cheaper than|"
+    r"no more than|not more than|session cap|starting at|from)\s*"
     r"(?:usd|\$|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)")
 # A price *range* ("the $1,200-1,500 band") is a budget band, not a price.
 _PRICE_RANGE = re.compile(
