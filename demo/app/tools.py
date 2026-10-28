@@ -39,7 +39,13 @@ if _DEMO_DIR not in sys.path:
 
 from app import db  # orchestrator-owned; pure sqlite, safe import
 
-DEFAULT_BUDGET = 2_000.0  # $, session cap
+DEFAULT_BUDGET = 2_000.0  # $, session cap (USD — the catalogue is Amazon US)
+
+# The catalogue is the **Amazon US** catalogue: every price in it is USD.
+# The display currency is therefore USD; the keyword tables still accept the
+# rupee spellings because a user may type "₹3000" / "rs 3000" / "inr 3000".
+CURRENCY = "USD"
+CURRENCY_SYMBOL = "$"
 
 AXES = ["price", "rating", "brand", "weight", "battery", "noise cancelling",
         "colour", "capacity", "warranty", "comfort"]
@@ -74,8 +80,11 @@ def _int(desc: str) -> dict:
 
 TOOLS: list[dict] = [
     {"name": "search_products",
-     "description": "Search the catalogue for products matching a natural-language query, applying any price/rating/brand constraints. Returns a compact list with id, title, brand, price, mrp, discount %, rating, rating_count, category, image_url and a one-line reason.",
-     "parameters": _obj({"query": _string("Natural language query, e.g. 'noise cancelling headphones under 5000'"),
+     "description": ("Search the Amazon US catalogue for products matching a natural-language query, "
+                     "applying any price (USD) / rating / brand constraints. Returns a compact list with id, "
+                     "title, brand, price, mrp, discount %, rating, rating_count, category, image_url and a "
+                     "one-line reason. Code-mixed queries (Hinglish) are supported."),
+     "parameters": _obj({"query": _string("Natural language query, e.g. 'noise cancelling headphones under $200'"),
                          "k": _int("Max results (default 10)"),
                          "constraints": {"type": "object", "description": "Optional explicit constraints (price_min, price_max, rating_min, brand, category)"}},
                         required=["query"])},
@@ -90,7 +99,9 @@ TOOLS: list[dict] = [
                          "min_rating": {"type": "number", "description": "Only reviews rated >= this"}},
                         required=["product_id"])},
     {"name": "compare_products",
-     "description": "Compare 2+ products across axes extracted from the request (price, rating, brand, weight, battery, noise cancelling, colour, capacity, warranty). Returns a per-axis table with DB-sourced evidence.",
+     "description": ("Compare 2+ products across axes extracted from the request (price, rating, brand, weight, "
+                     "battery, noise cancelling, colour, capacity, warranty, comfort). Returns a per-axis table "
+                     "with DB-sourced evidence (price/rating from the catalogue, feature quotes with review ids)."),
      "parameters": _obj({"product_ids": {"type": "array", "items": {"type": "string"}, "description": "2 or more product_ids to compare"},
                          "query": _string("The user's comparison request, used to pick axes")},
                         required=["product_ids"])},
@@ -112,7 +123,8 @@ TOOLS: list[dict] = [
      "description": "Show the current session cart with items, prices and total vs budget.",
      "parameters": _obj({}, required=[])},
     {"name": "checkout_cart",
-     "description": "Mock checkout of the session cart. Computes the total from catalogue prices only and refuses if it exceeds the session budget cap (default $2,000). No real payment happens.",
+     "description": ("Mock checkout of the session cart. Computes the total from catalogue prices (USD) only and "
+                     "refuses if it exceeds the session budget cap (default $2,000). No real payment happens."),
      "parameters": _obj({"ship_to": _string("Delivery label (mock)")}, required=[])},
     {"name": "track_order",
      "description": "Track a mock order by order_id.",
@@ -281,6 +293,106 @@ def _sql_search(conn, query: str, constraints: dict, k: int) -> list[str]:
     return [r["product_id"] for r in rows]
 
 
+def _query_tokens(text: str) -> list[str]:
+    """Alphanumeric tokens of a query, used for cheap relevance scoring."""
+    return [t for t in re.split(r"[^a-z0-9]+", (text or "").lower())
+            if len(t) >= 3 and t not in _STOPWORDS]
+
+
+def _model_phrases(query: str, brands: list[str]) -> dict[str, list[str]]:
+    """Normalised 'brand + model' phrases mentioned in the query, per brand.
+
+    "compare Sony WH-1000XM5 and Bose QuietComfort 45 ..." ->
+    {'sony': ['wh1000xm5', '1000xm5'], 'bose': ['quietcomfort45']}
+    (numbers kept, punctuation dropped) so a title can be matched on the
+    *model*, not just the brand.
+    """
+    toks = [t for t in re.split(r"[^a-z0-9]+", (query or "").lower()) if t]
+    out: dict[str, list[str]] = {b: [] for b in brands}
+    for b in brands:
+        for i, t in enumerate(toks):
+            if t != b:
+                continue
+            tail = toks[i + 1:i + 3]
+            if len(tail) >= 2:
+                p = "".join(tail[:2])
+                if len(p) >= 4:
+                    out[b].append(p)
+            if tail:
+                p = tail[-1]
+                if len(p) >= 4:
+                    out[b].append(p)
+    return out
+
+
+def _brand_title_rescue(conn, query: str, constraints: dict,
+                        limit: int = 6) -> list[str]:
+    """Recover products whose *title* names a requested brand although the
+    ``brand`` column says something else.
+
+    Amazon Renewed / bundled listings keep the real brand only in the title
+    (e.g. "Sony WH-1000XM5 ... (Renewed)" has ``brand='Amazon Renewed'``), so a
+    strict ``brand = 'Sony'`` filter hides models that really are in the
+    catalogue.  Without this, "compare Sony WH-1000XM5 and Bose QuietComfort 45"
+    would never surface the two requested models.
+
+    Returns product_ids, best match first.  Never raises.
+    """
+    raw_brands = constraints.get("brand") or []
+    if isinstance(raw_brands, str):
+        raw_brands = [raw_brands]
+    brands = [str(b).strip().lower() for b in raw_brands if str(b).strip()]
+    if not brands:
+        return []
+    where, params = [], []
+    for b in brands:
+        where.append("lower(title) LIKE ?")
+        params.append(f"%{b}%")
+    sql = ("SELECT product_id, title, brand, price, rating, rating_count "
+           f"FROM products WHERE ({' OR '.join(where)})")
+    if constraints.get("price_min") is not None:
+        sql += " AND price >= ?"
+        params.append(float(constraints["price_min"]))
+    if constraints.get("price_max") is not None:
+        sql += " AND price <= ?"
+        params.append(float(constraints["price_max"]))
+    if constraints.get("rating_min") is not None:
+        sql += " AND rating >= ?"
+        params.append(float(constraints["rating_min"]))
+    rows = _safe_fetchall(conn, sql, params)
+    if not rows:
+        return []
+    toks = _query_tokens(query) + _query_tokens(constraints.get("free_text") or "")
+    content_toks = [t for t in toks if t not in brands]
+    phrases = _model_phrases(query, brands)
+    scored: list[tuple] = []
+    for r in rows:
+        title = (r.get("title") or "").lower()
+        if not title:
+            continue
+        norm = re.sub(r"[^a-z0-9]", "", title)
+        score = 0
+        for b in brands:
+            if title.startswith(b):
+                score += 6
+            elif b in title:
+                score += 3
+        for b, plist in phrases.items():
+            if any(p in norm for p in plist) and title.startswith(b):
+                # the listing is *of* that model (brand leads the title)
+                score += 8
+        overlap = sum(1 for t in set(content_toks) if t in title)
+        model_hit = any(any(p in norm for p in plist) and title.startswith(b)
+                        for b, plist in phrases.items())
+        if content_toks and overlap == 0 and not model_hit:
+            # no product-ish token of the query is present -> not this product
+            continue
+        score += overlap
+        scored.append((score, r.get("rating_count") or 0, r.get("product_id"), title))
+    scored.sort(key=lambda x: (-x[0], -x[1], x[2]))
+    return [pid for _s, _n, pid, _t in scored[:max(1, int(limit))]]
+
+
 def _sql_reviews(conn, pid: str, limit: int, min_rating) -> list[dict]:
     where, params = ["product_id=?"], [pid]
     if min_rating is not None:
@@ -309,12 +421,19 @@ def _t_search_products(conn, args, session):
     k = int(args.get("k") or 10)
     explicit = args.get("constraints") or {}
     r = _retrieval()
-    parsed = dict(explicit)
-    if not parsed and r is not None and hasattr(r, "parse_constraints"):
+    parsed: dict = {}
+    if r is not None and hasattr(r, "parse_constraints"):
         try:
-            parsed = r.parse_constraints(query) or {}
+            parsed = dict(r.parse_constraints(query) or {})
         except Exception as exc:  # noqa: BLE001
             log.warning("parse_constraints failed: %s", exc)
+    if explicit:
+        # Explicit constraints *refine* the parsed ones (they win per key);
+        # dropping the parsed ones would lose e.g. "noise cancelling" when the
+        # model only passes price/rating/category.
+        for key, val in (explicit or {}).items():
+            if val is not None:
+                parsed[key] = val
     if not parsed:
         parsed = _local_constraints(query)
     hits: list = []
@@ -327,19 +446,35 @@ def _t_search_products(conn, args, session):
     if not hits:
         hits = _sql_search(conn, query, parsed, k)
 
+    # Brand-in-title rescue: a strict brand filter hides Renewed / bundled
+    # listings whose brand column does not carry the brand the user asked for.
+    seen_pids = {p for p in (_hit_pid(h) for h in hits) if p}
+    rescued: list[str] = []
+    try:
+        rescued = [pid for pid in _brand_title_rescue(conn, query, parsed, limit=6)
+                   if pid and pid not in seen_pids]
+    except Exception as exc:  # noqa: BLE001
+        log.debug("brand-in-title rescue failed: %s", exc)
+    hit_pids = list(seen_pids)
+    # rescued models the user named explicitly come first, then the rest
+    hits = rescued + hits
     products, cites = [], []
     for h in hits:
         pid = _hit_pid(h)
         if not pid:
             continue
         score = getattr(h, "score", None) if not isinstance(h, (str, dict)) else None
-        reason = f"matches your query (score {score:.2f})" if score is not None \
-            else "matches your query"
+        if pid in rescued:
+            reason = "brand named in the title (e.g. Renewed listing)"
+        else:
+            reason = f"matches your query (score {score:.2f})" if score is not None \
+                else "matches your query"
         compact, cs = _product_facts(conn, pid, reason)
         if compact:
             products.append(compact)
             cites.extend(cs)
-    return {"query": query, "count": len(products), "products": products}, cites, None
+    return {"query": query, "count": len(products), "products": products,
+            "currency": CURRENCY, "brand_title_rescued": len(rescued)}, cites, None
 
 
 def _t_get_product(conn, args, session):

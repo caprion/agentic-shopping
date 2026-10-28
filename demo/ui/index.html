@@ -19,18 +19,18 @@
         <select id="persona">
           <option value="guest">Guest</option>
           <option value="alex">Alex · gift buyer (price-sensitive)</option>
-          <option value="rhea">Rhea · value &amp; quality</option>
+          <option value="rhea">Rhea · value + quality (warranty &amp; rating proof)</option>
         </select>
       </label>
       <label class="control">
         <span class="control-label">Demo</span>
         <select id="demo-scripts">
           <option value="">Demo scripts…</option>
-          <option value="I need a gift for my brother's birthday under $300, he loves photography">1 · gift for brother (photography)</option>
-          <option value="noise cancelling headphones under $200 with at least 4.5 stars">2 · noise cancelling headphones</option>
-          <option value="compare Sony WH-1000XM5 and Bose QuietComfort 45 on price, battery and comfort">3 · compare XM5 vs QC45</option>
-          <option value="saste earphones under $50 for mom, no plastic">4 · code-mixed: saste earphones</option>
-          <option value="best laptop for video editing under $1500">5 · laptop for video editing</option>
+          <option value="I need a gift for my brother's birthday under $300, he loves photography">1 · gift for brother — photography, ≤ $300</option>
+          <option value="noise cancelling headphones under $200 with at least 4.5 stars">2 · ANC headphones ≤ $200, ≥ 4.5★</option>
+          <option value="compare Sony WH-1000XM5 and Bose QuietComfort 45 on price, battery and comfort">3 · compare XM5 vs QuietComfort 45</option>
+          <option value="saste earphones under $50 for mom, no plastic">4 · code-mixed (Hinglish): saste earphones</option>
+          <option value="best laptop for video editing under $1500">5 · laptop for video editing ≤ $1,500</option>
         </select>
       </label>
       <button id="system-toggle" class="ghost-btn" title="Toggle system transparency panel">System</button>
@@ -48,7 +48,8 @@
 
       <div class="composer">
         <textarea id="input" rows="1" placeholder="Ask Aria to find, compare, or buy something…"></textarea>
-        <div class="code-hint">Multilingual &amp; code-mixed welcome — try <code>saste earphones under $50 for mom</code></div>
+        <div class="code-hint">Multilingual &amp; code-mixed input is first-class — try a code-mixed query: <code>saste earphones under $50 for mom</code></div>
+        <div id="persona-hint" class="persona-hint"></div>
         <div class="composer-row">
           <button id="mic" class="icon-btn" title="Speak (Web Speech API)">🎤</button>
           <button id="image-btn" class="icon-btn" title="Search by image">🖼️</button>

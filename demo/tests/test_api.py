@@ -63,11 +63,34 @@ def check_chat_sse() -> tuple:
     return f"{r.text.count(chr(10))} frames"
 
 
+def check_session_currency() -> tuple:
+    """The session endpoint reports the USD budget the UI shows."""
+    c = _client()
+    r = c.get("/api/session/b4-api-check")
+    assert r.status_code == 200, f"session status {r.status_code}"
+    body = r.json()
+    assert body.get("budget") == 2000.0, f"budget != 2000: {body.get('budget')}"
+    assert body.get("currency") == "USD", f"currency != USD: {body.get('currency')}"
+    return "budget $2,000 / USD"
+
+
+def check_chat_is_usd() -> tuple:
+    """No rupee symbol may reach the client (the catalogue is USD)."""
+    c = _client()
+    r = c.post("/api/chat", json={"message": "wireless headphones under $100",
+                                  "stream": True})
+    assert r.status_code == 200, f"sse status {r.status_code}"
+    assert "₹" not in r.text, "rupee symbol leaked into the chat stream"
+    return "chat stream is USD-only"
+
+
 def run() -> list:
     results = []
     for name, fn in (("health", check_health),
                      ("chat_nonstream", check_chat_nonstream),
-                     ("chat_sse", check_chat_sse)):
+                     ("chat_sse", check_chat_sse),
+                     ("session_currency", check_session_currency),
+                     ("chat_is_usd", check_chat_is_usd)):
         try:
             detail = fn()
             results.append((name, True, str(detail)[:120]))

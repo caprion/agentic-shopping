@@ -95,6 +95,12 @@ class StockGuard:
 _RUPEE = re.compile(r"(?:₹|rs\.?|inr|\$)\s*([0-9][0-9,]*(?:\.[0-9]+)?)", re.I)
 _RATING = re.compile(r"([0-5](?:\.[0-9]+)?)\s*(?:★|stars?)", re.I)
 _PERCENT_OFF = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*%\s*(?:off|discount)", re.I)
+# An amount that merely echoes a limit ("under $200", "budget cap $2,000") is
+# not a product-price claim and must not be flagged as unverified.
+_LIMIT_ECHO = re.compile(
+    r"(?i)\b(?:under|below|less than|within|up to|max(?:imum)?|budget(?:\s+cap)?|"
+    r"cap of|cheaper than|no more than|not more than|session cap)\s*"
+    r"(?:usd|\$|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)")
 
 
 class ClaimVerifier:
@@ -106,11 +112,19 @@ class ClaimVerifier:
     def verify(self, conn, answer: str, citations: list[dict]) -> dict:
         known_prices, known_ratings, known_discounts = self._known_values(
             conn, citations)
+        # a derived difference ("~$49 cheaper") between two cited prices is a
+        # legitimate comparison, not a fabricated price
+        derived = [abs(a - b) for i, a in enumerate(known_prices)
+                   for b in known_prices[i + 1:]]
         violations: list[dict] = []
-        for v in self._nums(_RUPEE.findall(answer or "")):
+        # strip limit echoes ("under $200") before looking for price claims
+        price_text = _LIMIT_ECHO.sub(" ", answer or "")
+        for v in self._nums(_RUPEE.findall(price_text)):
             if not any(abs(v - k) <= max(self.PRICE_TOL * abs(k), self.PRICE_ABS)
                        for k in known_prices):
-                violations.append({"type": "price", "claim": v})
+                if not any(abs(v - d) <= max(self.PRICE_TOL * abs(d), self.PRICE_ABS)
+                           for d in derived):
+                    violations.append({"type": "price", "claim": v})
         for v in self._nums(_RATING.findall(answer or "")):
             if not any(abs(v - k) <= self.RATING_TOL for k in known_ratings):
                 violations.append({"type": "rating", "claim": v})

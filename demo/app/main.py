@@ -17,6 +17,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 import time
 import uuid
@@ -60,6 +61,56 @@ def _try_import(name: str) -> Any:
 
 def _db() -> Any:
     return _try_import("app.db")
+
+
+# --------------------------------------------------------------------------- #
+# Currency policy — the catalogue is Amazon US, so everything we *display* is
+# USD.  (Users may still type a rupee amount such as "3000 rs"; the parser
+# accepts it, the UI never shows it.)
+# --------------------------------------------------------------------------- #
+DEFAULT_BUDGET = 2_000.0  # $, session cap (same default as guardrails/tools)
+
+_RS_WORD = re.compile(r"(?<![A-Za-z])(?:rs\.?|inr)\s*(\d)", re.I)
+
+
+def _to_usd(text: str) -> str:
+    """Normalise rupee spellings in generated text to the USD display format.
+
+    Only the currency *symbol* changes — amounts are never rewritten — so no
+    number the model produced is altered.
+    """
+    if not text:
+        return text
+    out = str(text).replace("₹", "$")
+    out = _RS_WORD.sub(lambda m: "$" + m.group(1), out)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Agent system prompt overlay (app/agent.py is owned by another builder; the
+# serving layer applies the USD policy without touching that file).
+# --------------------------------------------------------------------------- #
+_AGENT_PROMPT_PATCHES = (
+    ("for an Indian e-commerce prototype",
+     "for the US Amazon marketplace (catalogue prices are in USD)"),
+    ("the ₹50,000 session budget", "the $2,000 session budget"),
+)
+
+
+def _agent_module() -> Any:
+    """Import app.agent and apply the USD policy to its system prompt."""
+    agent = _try_import("app.agent")
+    if agent is None or getattr(agent, "_aria_usd_policy", False):
+        return agent
+    try:
+        prompt = getattr(agent, "SYSTEM_PROMPT", "") or ""
+        for old, new in _AGENT_PROMPT_PATCHES:
+            prompt = prompt.replace(old, new)
+        agent.SYSTEM_PROMPT = prompt
+        agent._aria_usd_policy = True
+    except Exception as exc:  # noqa: BLE001 - never break the serving path
+        log.warning("could not apply the USD policy to the agent prompt: %s", exc)
+    return agent
 
 
 # --------------------------------------------------------------------------- #
@@ -290,6 +341,21 @@ def _sse(event: Dict[str, Any]) -> str:
     return "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
 
 
+def _usd_event(event: Any) -> Any:
+    """Apply the USD display policy to one agent event (never raises)."""
+    if not isinstance(event, dict):
+        return event
+    out = dict(event)
+    try:
+        if isinstance(out.get("text"), str):
+            out["text"] = _to_usd(out["text"])
+        if isinstance(out.get("answer"), str):
+            out["answer"] = _to_usd(out["answer"])
+    except Exception as exc:  # noqa: BLE001
+        log.debug("usd normalisation failed: %s", exc)
+    return out
+
+
 def _empty_done(answer: str = "", flags: Optional[list] = None) -> Dict[str, Any]:
     return {"type": "done", "answer": answer, "citations": [], "product_ids": [],
             "flags": flags or [], "latency_ms": 0, "tokens_in": 0, "tokens_out": 0}
@@ -318,7 +384,7 @@ def _fallback_turn(conn, session_id: str, message: str) -> Iterator[Dict[str, An
 
 def _run_agent_stream(conn, session_id: str, user_id: Optional[str],
                       message: str) -> Iterator[Dict[str, Any]]:
-    agent = _try_import("app.agent")
+    agent = _agent_module()
     if agent is None or not hasattr(agent, "run_turn"):
         yield from _fallback_turn(conn, session_id, message)
         return
@@ -349,7 +415,7 @@ def _run_agent_stream(conn, session_id: str, user_id: Optional[str],
 
 def _run_agent_sync(conn, session_id: str, user_id: Optional[str],
                     message: str) -> Dict[str, Any]:
-    agent = _try_import("app.agent")
+    agent = _agent_module()
     if agent is None or not hasattr(agent, "run_turn"):
         final: Dict[str, Any] = {}
         for ev in _fallback_turn(conn, session_id, message):
@@ -496,14 +562,14 @@ def create_app() -> FastAPI:
         _ensure_session(conn, session_id, user_id)
 
         if not stream:
-            result = _run_agent_sync(conn, session_id, user_id, message)
+            result = _usd_event(_run_agent_sync(conn, session_id, user_id, message))
             conn.close()
             return result
 
         def gen() -> Iterator[str]:
             try:
                 for event in _run_agent_stream(conn, session_id, user_id, message):
-                    yield _sse(event)
+                    yield _sse(_usd_event(event))
             finally:
                 try:
                     conn.close()
@@ -589,6 +655,10 @@ def create_app() -> FastAPI:
             cart = _cart_view(conn, session_id)
         finally:
             conn.close()
+        try:
+            budget = float(state.get("budget") or DEFAULT_BUDGET)
+        except (TypeError, ValueError):
+            budget = DEFAULT_BUDGET
         return {
             "session_id": session_id,
             "constraints": state.get("constraints") or {},
@@ -601,6 +671,8 @@ def create_app() -> FastAPI:
             "recent_citations": state.get("recent_citations") or [],
             "last_hits": state.get("last_hits") or [],
             "cart": cart,
+            "budget": budget,          # USD session cap ($2,000)
+            "currency": "USD",
         }
 
     # --------------------------------------------------------------- cart
@@ -652,15 +724,25 @@ def create_app() -> FastAPI:
     async def checkout(request: Request):
         body = await _body(request)
         session_id = body.get("session_id")
-        ship_to = body.get("ship_to") or "Home"
+        ship_to = body.get("ship_to") or "Home, US (mock)"
         if not session_id:
             return JSONResponse(status_code=400, content={"error": "session_id required"})
         conn = _connect()
         try:
             _ensure_session(conn, session_id, None)
+            state = _load_state(conn, session_id)
+            try:
+                budget = float(state.get("budget") or DEFAULT_BUDGET)
+            except (TypeError, ValueError):
+                budget = DEFAULT_BUDGET
             view = _cart_view(conn, session_id)
             if not view["items"]:
                 return JSONResponse(status_code=400, content={"error": "cart is empty"})
+            if view["total"] > budget:
+                return JSONResponse(status_code=400, content={
+                    "error": (f"Cart total ${view['total']:,.2f} exceeds the session "
+                              f"budget of ${budget:,.2f} — remove items or raise the cap"),
+                    "total": view["total"], "budget": budget, "status": "refused"})
             order_id = "AR-" + uuid.uuid4().hex[:12].upper()
             eta = _eta_days(ship_to)
             cart = _open_cart(conn, session_id, None)
@@ -683,6 +765,8 @@ def create_app() -> FastAPI:
             conn.commit()
             return {"order_id": order_id, "total": view["total"], "eta_days": eta,
                     "status": "confirmed", "ship_to": ship_to,
+                    "budget": budget, "currency": "USD",
+                    "note": "mock order — no payment taken",
                     "items": view["items"]}
         finally:
             conn.close()

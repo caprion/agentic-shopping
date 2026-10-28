@@ -367,13 +367,15 @@
   }
 
   var budgetCapVal = null;
+  var SESSION_BUDGET_USD = 2000; // USD session cap (guardrails/tools default)
+
   function budgetCap() {
-    return budgetCapVal || 0;
+    return budgetCapVal || SESSION_BUDGET_USD;
   }
 
   function checkout() {
     el.orderResult.innerHTML = "";
-    var shipTo = "Home"; // mock US delivery address
+    var shipTo = "Home, US (mock)"; // mock US delivery address
     fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -406,9 +408,8 @@
 
   function renderSession(d) {
     var c = d.constraints || {};
-    budgetCapVal = c.price_max || null;
-    if (budgetCapVal) el.budgetText.textContent = "Budget ≤ " + fmtMoney(budgetCapVal);
-    else el.budgetText.textContent = "Budget";
+    budgetCapVal = (d.budget != null) ? d.budget : SESSION_BUDGET_USD;
+    el.budgetText.textContent = "Budget ≤ " + fmtMoney(budgetCapVal);
 
     var parts = [];
     if (c.free_text) parts.push("<div class='constraint'>query: " + esc(c.free_text) + "</div>");
@@ -440,6 +441,19 @@
         d.recent_citations.length + "</span></div>");
     }
     el.sessionBody.innerHTML = parts.join("") || "<div class='empty'>No session yet</div>";
+  }
+
+  /* ------------------------------------------------------------- personas */
+  var PERSONAS = {
+    guest: "Browsing as a guest — no saved taste profile. Try a code-mixed query: “saste earphones under $50 for mom”.",
+    alex: "Alex buys gifts and watches the price hard — expect the cheapest option that clears the bar.",
+    rhea: "Rhea pays for quality: warranty, rating evidence and review proof before she commits."
+  };
+
+  function renderPersonaHint() {
+    var hint = document.getElementById("persona-hint");
+    if (!hint) return;
+    hint.textContent = PERSONAS[persona] || PERSONAS.guest;
   }
 
   /* ---------------------------------------------------------------- voice */
@@ -533,7 +547,10 @@
     el.input.addEventListener("keydown", function (e) {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(el.input.value); }
     });
-    el.persona.addEventListener("change", function () { persona = el.persona.value; });
+    el.persona.addEventListener("change", function () {
+      persona = el.persona.value;
+      renderPersonaHint();
+    });
     el.demoSel.addEventListener("change", function () {
       var v = el.demoSel.value;
       el.demoSel.selectedIndex = 0;
@@ -567,7 +584,8 @@
     bindControls();
     setupMic();
     setupImage();
-    addMsg("Hi, I'm Aria. Ask me to find, compare, or buy something — or pick a demo script up top.", "assistant");
+    renderPersonaHint();
+    addMsg("Hi, I'm Aria. Ask me to find, compare, or buy something — or pick a demo script up top. Prices are in USD (Amazon US catalogue).", "assistant");
     refreshState();
   }
 

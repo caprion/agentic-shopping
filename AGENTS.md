@@ -1,0 +1,59 @@
+# AGENTS.md — working in this repo
+
+This repository was built by a **swarm of AI agents against a written contract**. If you are an agent
+(or a human) picking it up, read this before you change anything.
+
+## The one rule that makes parallel work safe
+
+> **Agents own files. Humans (and the orchestrator) own interfaces.**
+
+`demo/CONTRACT.md` is the interface spec: the SQLite schema, the exact function signatures, the event
+schema, and the file-ownership table. If you need a new column, table or parameter:
+
+1. check `demo/CONTRACT.md` first — it may already exist;
+2. if not, and you own the module, add it there and **update the contract in the same commit**;
+3. if you do not own the module, do not edit it — implement an adapter in your own file and report the
+   requested change.
+
+Never edit `demo/app/db.py` without updating `demo/CONTRACT.md` in the same change.
+
+## Conventions
+
+- **Python 3.12**, stdlib + the packages in `demo/requirements.txt`. No new heavy dependencies without a
+  good reason (this repo must run on a small VM).
+- **Offline-safe**: no network calls at import time; models load lazily; every optional dependency is
+  wrapped in a `try/except` with a logged fallback. The demo must survive with no network, no API key
+  and no model cache.
+- **Never fabricate data.** Prices, ratings, stock, review text and order data come from SQLite only. If
+  a value does not exist, say it does not exist. (Price history is explicitly labelled *simulated*.)
+- **Cite everything.** A fact returned by a tool carries a citation: `{"product_id", "field", "value",
+  "quote"}` for product fields, `{"product_id", "review_id", "value", "quote"}` for review evidence.
+- **Guardrails are middleware, not prompt text.** Add new invariants to `demo/app/guardrails.py`.
+- Every module has a `--selftest` (`python -m app.<module> --selftest`) that exits 0 on an empty database.
+- Tests must be runnable without pytest: `python demo/tests/run_all.py`. SKIP is a valid outcome; FAIL is
+  not, when the database is empty.
+- Logs via the stdlib `logging` module. **Never print a secret** — read keys from the environment only.
+
+## Data
+
+`data/raw/` and `demo/data/` are git-ignored and regenerable:
+
+```bash
+bash demo/scripts/fetch_data.sh          # public datasets → data/raw
+python demo/ingest/build_db.py --stage all
+python demo/ingest/build_embeddings.py   # resumable; tracks embeddings_done
+```
+
+The pipeline is idempotent. `demo/ingest/build_embeddings.py` can be killed and restarted at any time.
+
+## Before you push
+
+```bash
+python demo/tests/run_all.py
+python -m app.embeddings --selftest
+python -m app.retrieval --selftest
+python -m app.agent --selftest
+```
+
+And keep the repo public-clean: no credentials, no private datasets, no references to any hiring process
+or personal job search. This repository is meant to be readable by anyone.
