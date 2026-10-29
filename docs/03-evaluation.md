@@ -166,15 +166,17 @@ appendix). If the key is missing the harness falls back to the deterministic `Mo
 | lexical_fixed | 0.0722 | 0.1102 | 0.1509 | 0.0665 | 0.0650 |
 | dense | 0.0959 | 0.1589 | 0.2080 | 0.0860 | 0.0727 |
 | hybrid_no_rerank | 0.0992 | 0.1577 | 0.2060 | 0.0896 | 0.0787 |
-| **hybrid** | 0.1113 | 0.1686 | 0.2060 | 0.1020 | 0.0941 |
+| hybrid | 0.1113 | 0.1686 | 0.2060 | 0.1020 | 0.0941 |
 | hybrid_prefilter | 0.0922 | 0.1424 | 0.1709 | 0.0870 | 0.0812 |
-| production *(n=150)* | 0.1172 | 0.1511 | 0.1883 | 0.1009 | 0.1013 |
+| production | 0.1172 | 0.1511 | 0.1883 | 0.1009 | 0.1013 |
 
 95% bootstrap CI of the mean (2,000 resamples):
 
 | arm | Recall@10 [95% CI] | nDCG@10 [95% CI] |
 |---|---|---|
 | lexical | 0.1102 [0.0842, 0.1367] | 0.0665 [0.0503, 0.0833] |
+| lexical_prefilter | 0.1046 [0.0800, 0.1300] | 0.0659 [0.0497, 0.0822] |
+| lexical_fixed | 0.1102 [0.0842, 0.1367] | 0.0665 [0.0503, 0.0833] |
 | dense | 0.1589 [0.1279, 0.1911] | 0.0860 [0.0681, 0.1034] |
 | hybrid_no_rerank | 0.1577 [0.1286, 0.1891] | 0.0896 [0.0717, 0.1091] |
 | hybrid | 0.1686 [0.1386, 0.2017] | 0.1020 [0.0828, 0.1234] |
@@ -189,11 +191,11 @@ the rest have no price and therefore cannot be embedded). The numbers below are 
 
 | metric | RRF only | RRF + cross-encoder | delta |
 |---|---|---|---|
-| recall@5 | 0.0992 | 0.1113 | **+0.0121** |
-| recall@10 | 0.1577 | 0.1686 | **+0.0109** |
-| recall@20 | 0.2060 | 0.2060 | +0.0000 |
-| ndcg@10 | 0.0896 | 0.1020 | **+0.0124** |
-| mrr@10 | 0.0787 | 0.0941 | **+0.0154** |
+| recall@5 | 0.0992 | 0.1113 | 0.0121 |
+| recall@10 | 0.1577 | 0.1686 | 0.0109 |
+| recall@20 | 0.2060 | 0.2060 | 0.0000 |
+| ndcg@10 | 0.0896 | 0.1020 | 0.0124 |
+| mrr@10 | 0.0787 | 0.0941 | 0.0154 |
 
 The rerank buys **ordering**, not coverage: Recall@20 is unchanged (it only touches the top-20),
 while every top-of-list metric improves and MRR@10 improves by 20%. This is the expected shape for
@@ -203,44 +205,33 @@ a cross-encoder — it re-ranks the head, it does not retrieve.
 
 **305 of the 500** sampled queries have a gold product inside the dense index.
 
-| arm | Recall@10 | Recall@20 | nDCG@10 | MRR@10 |
-|---|---|---|---|---|
-| lexical | 0.1807 | 0.2474 | 0.1091 | 0.1066 |
-| lexical_prefilter | 0.1714 | 0.2212 | 0.1080 | 0.1077 |
-| lexical_fixed | 0.1807 | 0.2474 | 0.1091 | 0.1066 |
-| dense | 0.2605 | 0.3409 | 0.1410 | 0.1192 |
-| hybrid_no_rerank | 0.2586 | 0.3378 | 0.1469 | 0.1291 |
-| **hybrid** | 0.2763 | 0.3378 | 0.1672 | 0.1543 |
-| hybrid_prefilter | 0.2334 | 0.2801 | 0.1426 | 0.1332 |
-| production | 0.2411 | 0.3005 | 0.1610 | 0.1617 |
+| arm | Recall@5 | Recall@10 | Recall@20 | nDCG@10 | MRR@10 |
+|---|---|---|---|---|---|
+| lexical | 0.1183 | 0.1807 | 0.2474 | 0.1091 | 0.1066 |
+| lexical_prefilter | 0.1172 | 0.1714 | 0.2212 | 0.1080 | 0.1077 |
+| lexical_fixed | 0.1183 | 0.1807 | 0.2474 | 0.1091 | 0.1066 |
+| dense | 0.1572 | 0.2605 | 0.3409 | 0.1410 | 0.1192 |
+| hybrid_no_rerank | 0.1627 | 0.2586 | 0.3378 | 0.1469 | 0.1291 |
+| hybrid | 0.1825 | 0.2763 | 0.3378 | 0.1672 | 0.1543 |
+| hybrid_prefilter | 0.1511 | 0.2334 | 0.2801 | 0.1426 | 0.1332 |
+| production | 0.1871 | 0.2411 | 0.3005 | 0.1610 | 0.1617 |
 
-On the subset the dense arm can actually win, dense-only (0.2605) is within 6% of the full hybrid
-(0.2763) and **beats lexical-only by 44%**. Lexical retrieval is the weak signal everywhere;
-
-| arm | Recall@10 | Recall@20 | nDCG@10 | MRR@10 |
-|---|---|---|---|---|
-| lexical | 0.1746 | 0.2420 | 0.1035 | 0.1001 |
-| dense | 0.2759 | 0.3554 | 0.1528 | 0.1322 |
-| hybrid_no_rerank | 0.2765 | 0.3582 | 0.1545 | 0.1337 |
-| **hybrid** | **0.2987** | 0.3582 | **0.1785** | **0.1617** |
-| hybrid_prefilter | 0.2479 | 0.2838 | 0.1489 | 0.1355 |
-| production *(n=89)* | 0.2650 | 0.3109 | 0.1622 | 0.1543 |
-
-On the subset the dense arm can actually win, dense-only (0.2759) is within 8% of the full hybrid
-(0.2987) and **beats lexical-only by 58%**. Lexical retrieval is the weak signal everywhere;
-dense retrieval is the strong one, and it is only held back by the index size.
+On the subset the dense arm can actually win: dense-only (0.2605) is within 6% of the full hybrid
+(0.2763) and **beats lexical-only by 44%**. Lexical retrieval is the weak signal everywhere; dense
+retrieval is the strong one — and with the index now complete, it is no longer being held back by
+coverage.
 
 ### 2.4 Category breakdown (hybrid arm, top 8 by query count)
 
 | category | queries | Recall@10 | nDCG@10 | MRR@10 | Recall@10 lexical | Recall@10 dense |
 |---|---|---|---|---|---|---|
-| All Electronics | 163 | 0.2142 | 0.1333 | 0.1237 | 0.1304 | 0.1779 |
-| Computers | 138 | 0.1528 | 0.0965 | 0.0931 | 0.0755 | 0.1479 |
-| Camera & Photo | 65 | 0.1615 | 0.0774 | 0.0636 | 0.1000 | 0.1846 |
-| Cell Phones & Accessories | 49 | 0.1429 | 0.0889 | 0.0723 | 0.1224 | 0.1088 |
-| Home Audio & Theater | 18 | 0.1528 | 0.0877 | 0.1028 | 0.0417 | 0.1944 |
+| All Electronics | 163 | 0.1866 | 0.1184 | 0.1104 | 0.1304 | 0.1667 |
+| Computers | 138 | 0.1479 | 0.0947 | 0.0905 | 0.0755 | 0.1467 |
+| Camera & Photo | 65 | 0.1692 | 0.0894 | 0.0852 | 0.1000 | 0.1846 |
+| Cell Phones & Accessories | 49 | 0.1429 | 0.0762 | 0.0573 | 0.1224 | 0.1088 |
+| Home Audio & Theater | 18 | 0.0972 | 0.0546 | 0.0602 | 0.0417 | 0.1944 |
 | Amazon Devices | 10 | 0.0500 | 0.0380 | 0.1000 | 0.1500 | 0.0500 |
-| Industrial & Scientific | 9 | 0.3333 | 0.1356 | 0.0751 | 0.1667 | 0.1111 |
+| Industrial & Scientific | 9 | 0.3889 | 0.1532 | 0.0833 | 0.1667 | 0.1667 |
 | Apple Products | 8 | 0.1250 | 0.0789 | 0.0625 | 0.1250 | 0.1250 |
 
 ### 2.5 Constraint parsing (41 hand-written queries)

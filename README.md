@@ -130,6 +130,19 @@ The guardrails are not decoration — they changed outcomes in the recorded runs
 
 ---
 
+### Reproducing the numbers
+
+```bash
+python -m app.eval --all --report --json=/tmp/eval.json   # regenerate demo/eval_report.md
+python demo/ingest/sync_docs_tables.py                    # copy the tables into docs/03-evaluation.md
+python demo/tests/run_all.py                              # 37 checks, incl. the docs-numbers gate
+```
+
+The narrative document and the machine-generated appendix are **gated**: `test_docs_numbers.py`
+fails if any quoted number drifts from the harness output.
+
+---
+
 ## 5. Data (all public, all real)
 
 | Source | Used for | Link |

@@ -103,6 +103,8 @@ worked — they are the ones where we were wrong, and how the system told us.
 | 5.16 | Provider rate limit (429) | (a) wait, (b) take over the work | **(b) — I re-ran the evaluation and rewrote the numbers myself** | The harness was finished; the doc still had 26 placeholders | All placeholders filled with measured values; four runs published | ✅ |
 | 5.17 | Ports | hard-coded 8000 | **8000 default, `ARIA_PORT` override** | Port 8000 and 8080 were already occupied by other apps on this VM | The demo ran on 8077–8091 during testing; `run.py` stays at 8000 for the public | ⚠️ |
 | 5.18 | Python packaging | (a) add to system Python, (b) venv | **system Python** | The box already has torch/sentence-transformers/lancedb installed | `pip install` was blocked by PEP 668 (externally-managed environment) anyway | ✅ (accidental) |
+| 5.19 | Do the published numbers live in prose or in a generated file? | (a) prose only, (b) generated appendix + gated prose | **(b)** — `demo/eval_report.md` is machine-generated; `docs/03-evaluation.md` is the narrative, and its tables are **copied** from the appendix by `demo/ingest/sync_docs_tables.py` | A hand-written number drifts; we found real drift (stale tables, a stale duplicate subset table, prose quoting an earlier run) | The drift is now impossible to ship: `demo/tests/test_docs_numbers.py` fails the gate if the two disagree | ✅ |
+| 5.20 | Should a sync tool rewrite prose too? | (a) yes, (b) tables only | **(b) tables only** | The first version of the sync script also rewrote prose — it dropped the `### 2.5` heading and duplicated a paragraph | Rewriting prose by script is how you lose a heading; the script now only owns table blocks | ✅ (learned the hard way) |
 
 ---
 
@@ -132,6 +134,7 @@ worked — they are the ones where we were wrong, and how the system told us.
 | 7.6 | Dense arm measured on a partial index | Numbers were a moving target | The index build ran concurrently with the eval | Re-measured on the finished index (101,458 vectors) | ✅ fixed |
 | 7.7 | Demo scripts could not be satisfied | "gift under ₹3,000" over a USD catalogue; "Sony WH-1000XM5" exists only as *Renewed* | Scripts written before the catalogue was inspected | Scripts re-derived from the data; brand-in-title rescue added | ✅ fixed |
 | 7.8 | Harness "success" rewarded hallucination | Correct refusals counted as failures | Metric defined as compliance | Report compliance *and* behaviour-correct | ✅ fixed (documentation) |
+| 7.9 | Published numbers drifted from the harness | §2.1/§2.3 tables and the §3 narrative quoted an earlier partial-index run; a stale duplicate subset table survived | Tables were hand-edited; nothing compared them to the appendix | `demo/ingest/sync_docs_tables.py` copies the tables; `demo/tests/test_docs_numbers.py` gates the difference | ✅ fixed |
 
 ---
 
