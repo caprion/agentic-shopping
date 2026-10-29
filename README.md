@@ -102,7 +102,7 @@ raw tables: [demo/eval_report.md](demo/eval_report.md).
 500 queries, seed `20261028`, against the Amazon Shopping Queries gold set; 95% CI for hybrid
 Recall@10 is [0.1386, 0.2017].
 
-Read it as: **RRF fusion beats either channel alone (+4.8 pts Recall@10 over lexical, +5.5 over
+Read it as: **RRF fusion beats either channel alone (+5.8 pts Recall@10 over lexical, +1.0 pt over
 dense), and the cross-encoder rerank adds another +1.1 pts Recall@10, +1.2 pts nDCG@10 and +1.5 pts
 MRR@10 on top of fusion.** On the 305-query subset whose gold product is inside the dense index,
 hybrid reaches **Recall@10 0.2763 / nDCG 0.1672** — 53% better than lexical-only on the same subset.
@@ -110,12 +110,14 @@ hybrid reaches **Recall@10 0.2763 / nDCG 0.1672** — 53% better than lexical-on
 Constraint parsing (41 hand-written queries, English + code-mixed): **price_max 1.00/1.00,
 price_min 1.00/1.00, rating_min 1.00/1.00, brand 1.00/1.00, category 1.00/0.92** (precision/recall).
 
-Agent suite (10 turns, LLM mode **live**): behaviour-correct **10/10**; harness-style compliance task success **0.80** (demo 1.00, adversarial 0.60); groundedness **0.9251**; latency mean **6.1 s** / p50 **6.3 s** / p95 **8.8 s**; **2,969 tokens per turn**; **63.0 citations per turn**. Agent metrics move by ±0.30 between identical runs — we publish the runs in [docs/03-evaluation.md §8](docs/03-evaluation.md) rather than one.
+Agent suite (10 turns, LLM mode **live**): behaviour-correct **10/10**; harness-style compliance task success **0.80** (demo 1.00, adversarial 0.60); groundedness **0.9251**; latency mean **6.1 s** / p50 **6.3 s** / p95 **8.8 s**; **2,969 tokens per turn**; **63.0 citations per turn**. Agent metrics move by ±0.30 between runs — we publish all eight in [docs/03-evaluation.md §8](docs/03-evaluation.md) rather than one.
 
 Two caveats we will not hide: the catalogue has **no price for 48% of its products**, and the gold set
 is drawn from that same pool — so only **56.5%** of a query's gold products are reachable by *any*
 arm, and every recall number is measured against that ceiling rather than 1.0. And the agent metrics
-are noisy: four runs of the same suite produced task success of 0.40, 0.70, 0.40, 0.70.
+are noisy: **eight** runs of the same suite produced compliance task success of 0.40, 0.70, 0.40,
+0.70, 0.80, 0.80, 0.70, 0.80 — each labelled with the LLM mode it ran under (the retrieval metrics
+were identical to four decimals in every one of them).
 
 The guardrails are not decoration — they changed outcomes in the recorded runs:
 
