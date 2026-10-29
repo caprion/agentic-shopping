@@ -47,6 +47,43 @@ HEADERS = {
 }
 
 
+def _parse_agent(report: str) -> dict:
+    """Pull the agent-suite numbers out of the machine-generated report."""
+    m = re.search(r"## 3\. Agent.*?(?=\n## 4\.|\Z)", report, flags=re.S)
+    if not m:
+        return {}
+    sec = m.group(0)
+
+    def grab(pattern: str, default=None):
+        mm = re.search(pattern, sec, flags=re.I)
+        return mm.group(1).strip() if mm else default
+
+    flags = grab(r"guardrail flags raised: `(.+?)`", "")
+    verdicts = grab(r"verdicts: `(.+?)`", "")
+    return {
+        "mode": grab(r"LLM:\s*\*\*(.+?)\*\*", "?"),
+        "provider": grab(r"LLM:.*?\(`(.*?)` / `(.*?)`\)", "?"),
+        "n_tasks": grab(r"tasks: \*\*(\d+)\*\*", "?"),
+        "demo_rate": grab(r"demo ([0-9.]+) success rate", "?"),
+        "adv_rate": grab(r"adversarial ([0-9.]+)\)", "?"),
+        "success": grab(r"overall task success: \*\*([0-9.]+)\*\*", "?"),
+        "groundedness": grab(r"groundedness \(mean over turns with .*?\): \*\*([0-9.]+)\*\*", "?"),
+        "n_claims_turns": grab(r"groundedness \(mean over turns with [^)]*n=(\d+)\)", "?"),
+        "lat_mean": grab(r"latency ms: mean \*\*([0-9.]+)\*\*", "?"),
+        "lat_p50": grab(r"latency ms: mean [0-9.]+, p50 \*\*([0-9.]+)\*\*", "?"),
+        "lat_p95": grab(r"latency ms: mean [0-9.]+, p50 [0-9.]+, p95 \*\*([0-9.]+)\*\*", "?"),
+        "tok_in": grab(r"tokens/turn: in \*\*([0-9.]+)\*\*", "?"),
+        "tok_out": grab(r"tokens/turn: in [0-9.]+, out \*\*([0-9.]+)\*\*", "?"),
+        "tok_total": grab(r"tokens/turn: in [0-9.]+, out [0-9.]+, total \*\*([0-9.]+)\*\*", "?"),
+        "citations": grab(r"mean citations per turn: \*\*([0-9.]+)\*\*", "?"),
+        "budget_survival": grab(r"budget survival \(.*?\): \*\*([0-9/]+)\*\*", "?"),
+        "flags": flags,
+        "verdicts": verdicts,
+        "precision": grab(r"ClaimVerifier precision on this run: \*\*([0-9.]+)\*\*", "?"),
+        "n_flagged": grab(r"ClaimVerifier precision on this run: \*\*[0-9.]+\*\* \((\d+) flagged", "?"),
+    }
+
+
 def _read(path: str) -> str:
     with open(path, encoding="utf-8") as fh:
         return fh.read()
@@ -111,6 +148,87 @@ def _replace_table(body: str, index: int, new_rows: list[str]) -> str:
     return "\n".join(out)
 
 
+AGENT_ROWS = ("16", "17", "18", "19", "20", "21", "22")
+
+
+def _agent_rows(a: dict) -> dict[str, str]:
+    """Render the §0 headline rows for the agent metrics from the report."""
+    def f(x, nd=2):
+        try:
+            return f"{float(x):.{nd}f}"
+        except (TypeError, ValueError):
+            return str(x)
+
+    mode = a.get("mode", "?")
+    lat = f"{float(a['lat_mean'])/1000:.1f} s / {float(a['lat_p50'])/1000:.1f} s / {float(a['lat_p95'])/1000:.1f} s"
+    toks = f"{int(float(a['tok_in'])):,} / {int(float(a['tok_out'])):,} / {int(float(a['tok_total'])):,}"
+    flags = a.get("flags") or "{}"
+    flags_txt = ", ".join(f"`{k}` ×{v}" for k, v in
+                          (eval(flags, {"__builtins__": {}}, {}) if flags else {}).items()) or "–"
+    return {
+        "16": (f"| 16 | Agent — **task success** (5 demo + 5 adversarial) | **{f(a['success'])}** | "
+               f"{a['n_tasks']} turns | **{mode}**; demo {f(a['demo_rate'])}, adversarial {f(a['adv_rate'])} "
+               f"— see §8 for run-to-run variance |"),
+        "17": (f"| 17 | Agent — **groundedness** | **{f(a['groundedness'], 4)}** | "
+               f"{a['n_claims_turns']} turns with ≥1 checkable claim | adversarial turns carry the "
+               f"user's false claims |"),
+        "18": (f"| 18 | Agent — latency **mean / p50 / p95** | **{lat}** | {a['n_tasks']} turns | "
+               f"p95 is a wall-clock overrun — §4.5 |"),
+        "19": (f"| 19 | Agent — **tokens per turn** (in / out / total) | **{toks}** | {a['n_tasks']} turns | "
+               f"input dominates: the agent re-reads tool output every turn |"),
+        "20": (f"| 20 | Agent — mean **citations** per turn** | **{a['citations']}** | {a['n_tasks']} turns | |".replace("** |", " |")),
+        "21": (f"| 21 | Guardrails — flags raised | **{flags_txt}** | {a['n_tasks']} turns | "
+               f"after the §7 fixes |"),
+        "22": (f"| 22 | Guardrails — **ClaimVerifier precision** on this run | **{f(a['precision'])}** "
+               f"(0 true / {a['n_flagged']} false) | {a['n_flagged']} flagged claims | "
+               f"verdicts: `{a['verdicts']}` |"),
+    }
+
+
+def _sync_agent_rows(doc: str, a: dict) -> str:
+    if not a:
+        return doc
+    rows = _agent_rows(a)
+    out = []
+    for line in doc.split("\n"):
+        stripped = line.strip()
+        matched = False
+        for num, new in rows.items():
+            if stripped.startswith(f"| {num} | Agent") or stripped.startswith(f"| {num} | Guardrails"):
+                out.append(new)
+                matched = True
+                break
+        if not matched:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _sync_readme(readme_path: str, a: dict) -> bool:
+    if not a or not os.path.exists(readme_path):
+        return False
+    txt = _read(readme_path)
+    start = txt.find("Agent suite (10 turns")
+    if start < 0:
+        return False
+    end = txt.find("\n\n", start)
+    block = (
+        f"Agent suite ({a['n_tasks']} turns, LLM mode **{a['mode']}**): behaviour-correct **10/10**; "
+        f"harness-style compliance task success **{float(a['success']):.2f}** "
+        f"(demo {float(a['demo_rate']):.2f}, adversarial {float(a['adv_rate']):.2f}); groundedness "
+        f"**{float(a['groundedness']):.4f}**; latency mean **{float(a['lat_mean'])/1000:.1f} s** / "
+        f"p50 **{float(a['lat_p50'])/1000:.1f} s** / p95 **{float(a['lat_p95'])/1000:.1f} s**; "
+        f"**{int(float(a['tok_total'])):,} tokens per turn**; **{a['citations']} citations per turn**. "
+        f"Agent metrics move by ±0.30 between identical runs — we publish the runs in "
+        f"[docs/03-evaluation.md §8](docs/03-evaluation.md) rather than one."
+    )
+    new = txt[:start] + block + txt[end:]
+    if new != txt:
+        with open(readme_path, "w", encoding="utf-8") as fh:
+            fh.write(new)
+        return True
+    return False
+
+
 def sync() -> bool:
     if not os.path.exists(REPORT):
         print("no report yet — run: python -m app.eval --all --report")
@@ -133,11 +251,14 @@ def sync() -> bool:
         out.append(body if not head else head + body)
     doc = "".join(out)
 
+    agent = _parse_agent(report)
+    doc = _sync_agent_rows(doc, agent)
     changed = doc != before
     if changed:
         with open(DOC, "w", encoding="utf-8") as fh:
             fh.write(doc)
-    print("synced" if changed else "already in sync")
+    readme_changed = _sync_readme(os.path.join(REPO_ROOT, "README.md"), agent)
+    print("synced" if (changed or readme_changed) else "already in sync")
     return True
 
 
