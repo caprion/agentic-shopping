@@ -163,6 +163,19 @@ def code_fingerprint() -> Dict[str, Any]:
             stderr=subprocess.DEVNULL, text=True).strip())
     except Exception:  # noqa: BLE001
         out["git_dirty"] = None
+    # The tree is *always* dirty while the harness runs: it rewrites
+    # demo/eval_report.md, which is tracked. What matters for reproducibility is
+    # whether the **application modules** that produced these numbers match the
+    # commit. So we check that separately.
+    try:
+        changed = subprocess.check_output(
+            ["git", "diff", "--name-only", "HEAD", "--", "demo/app", "demo/ingest"],
+            cwd=DEMO_ROOT.parent, stderr=subprocess.DEVNULL, text=True).split()
+        out["app_modules_match_head"] = not changed
+        out["app_files_changed"] = changed
+    except Exception:  # noqa: BLE001
+        out["app_modules_match_head"] = None
+        out["app_files_changed"] = []
     return out
 
 
@@ -2051,7 +2064,8 @@ def build_report(retrieval: Optional[Dict[str, Any]] = None,
                  "this code):")
         L.append("")
         L.append(f"- git HEAD: `{code.get('git_head')}` "
-                 f"(working tree dirty: `{code.get('git_dirty')}`)")
+                 f"(working tree dirty: `{code.get('git_dirty')}`; "
+                 f"**app modules match HEAD: `{code.get('app_modules_match_head')}`**)")
         L.append(f"- module hashes (sha256, first 12): "
                  f"`{code.get('modules')}`")
         L.append("")
