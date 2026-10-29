@@ -32,6 +32,7 @@ DOC = os.path.join(REPO_ROOT, "docs", "03-evaluation.md")
 
 # (doc section prefix, table index inside that section, report table selector)
 PLAN = (
+    ("### 2.6", 0, "agent_tasks"),
     ("### 2.1", 0, "arms_main"),
     ("### 2.1", 1, "arms_ci"),
     ("### 2.2", 0, "ce_delta"),
@@ -40,6 +41,7 @@ PLAN = (
 )
 
 HEADERS = {
+    "agent_tasks": "| id | kind | task | success | citations | claims | grounded | flags | tools | latency ms | tok in | tok out |",
     "arms_main": "| arm | Recall@5 | Recall@10 | Recall@20 | nDCG@10 | MRR@10 |",
     "arms_ci": "| arm | Recall@10 [95% CI] | nDCG@10 [95% CI] |",
     "ce_delta": "| metric | RRF only | RRF + cross-encoder | delta |",
@@ -185,6 +187,40 @@ def _agent_rows(a: dict) -> dict[str, str]:
     }
 
 
+def _agent_bullets(a: dict) -> str:
+    def f(x, nd=2):
+        try:
+            return f"{float(x):.{nd}f}"
+        except (TypeError, ValueError):
+            return str(x)
+
+    return (
+        f"* **Task success {f(a['success'])}** overall — demo {f(a['demo_rate'])}, adversarial {f(a['adv_rate'])}.\n"
+        f"* **Groundedness {f(a['groundedness'], 4)}** over the {a['n_claims_turns']} turns that made at least one "
+        f"checkable claim (a system that says nothing must not score 1.0 for it; see `n_turns_with_claims` in "
+        f"the appendix).\n"
+        f"* **Latency:** mean {float(a['lat_mean'])/1000:.1f} s, p50 {float(a['lat_p50'])/1000:.1f} s, "
+        f"p95 {float(a['lat_p95'])/1000:.1f} s.\n"
+        f"* **Tokens:** {float(a['tok_in']):,.0f} in / {float(a['tok_out']):,.0f} out per turn "
+        f"({float(a['tok_total']):,.0f} total).\n"
+        f"* **Mean citations:** {a['citations']} per turn.\n"
+        f"* **Budget survival:** {a.get('budget_survival')} turns whose user message carried a budget reached "
+        f"the retrieval tool (as `price_max` in the constraints or in the query text).\n"
+    )
+
+
+def _sync_agent_bullets(doc: str, a: dict) -> str:
+    if not a:
+        return doc
+    start = doc.find("* **Task success")
+    if start < 0:
+        return doc
+    end = doc.find("\nBehaviourally,", start)
+    if end < 0:
+        return doc
+    return doc[:start] + _agent_bullets(a) + doc[end:]
+
+
 def _sync_agent_rows(doc: str, a: dict) -> str:
     if not a:
         return doc
@@ -253,6 +289,7 @@ def sync() -> bool:
 
     agent = _parse_agent(report)
     doc = _sync_agent_rows(doc, agent)
+    doc = _sync_agent_bullets(doc, agent)
     changed = doc != before
     if changed:
         with open(DOC, "w", encoding="utf-8") as fh:

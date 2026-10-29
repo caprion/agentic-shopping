@@ -1,6 +1,6 @@
 # Aria — evaluation report (machine-generated appendix)
 
-_generated 2026-10-29 10:54:59 IST — `demo/app/eval.py` — every number below was measured on this machine, none are estimated_
+_generated 2026-10-29 10:58:28 IST — `demo/app/eval.py` — every number below was measured on this machine, none are estimated_
 
 ## 1. Retrieval — Amazon Shopping Queries (ESC) gold set
 
@@ -187,28 +187,28 @@ Queries whose gold product is inside the partial dense index: **305** of 500.
 ## 3. Agent (demo scripts + adversarial)
 
 - LLM: **live** (`deepseek` / `deepseek-chat`)
-- tasks: **10** (demo 1.00 success rate, adversarial 0.60)
-- overall task success: **0.8000**
-- groundedness (mean over turns with ≥1 checkable claim, n=8): **0.8684**
-- latency ms: mean **17364.6**, p50 **6115.0**, p95 **109454.0**
-- tokens/turn: in **4351.8**, out **513.2**, total **4865.0**
-- mean citations per turn: **62.8**
+- tasks: **10** (demo 1.00 success rate, adversarial 0.40)
+- overall task success: **0.7000**
+- groundedness (mean over turns with ≥1 checkable claim, n=9): **0.9444**
+- latency ms: mean **16455.8**, p50 **7148.0**, p95 **60184.0**
+- tokens/turn: in **3148.3**, out **502.2**, total **3650.5**
+- mean citations per turn: **56.0**
 - budget survival (the tool received the user's budget, not just the LLM's paraphrase): **5/5** turns
 - guardrail flags raised: `{'unverified_claim': 2, 'budget_exceeded': 1}`
-- ClaimVerifier precision on this run: **0.0000** (5 flagged claim(s) — verdicts: `{'false_positive:user_supplied': 3, 'false_positive:budget_echo': 1, 'false_positive:unexplained': 1}`)
+- ClaimVerifier precision on this run: **0.0000** (2 flagged claim(s) — verdicts: `{'false_positive:budget_echo': 1, 'false_positive:user_supplied': 1}`)
 
 | id | kind | task | success | citations | claims | grounded | flags | tools | latency ms | tok in | tok out |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| demo-1 | demo | I need a gift for my brother's birthday under $300, he loves pho | ✅ | 70 | 13 | 1.0000 | `-` | `search_products` | 109454 | 199 | 168 |
-| demo-2 | demo | noise cancelling headphones under $200 with at least 4.5 stars | ✅ | 70 | 21 | 1.0000 | `-` | `search_products` | 8386 | 7010 | 750 |
-| demo-3 | demo | compare Sony WH-1000XM5 and Bose QuietComfort 45 on price, batte | ✅ | 127 | 7 | 1.0000 | `-` | `search_products,compare_products` | 11524 | 629 | 643 |
-| demo-4 | demo | saste earphones under $50 for mom, no plastic | ✅ | 70 | 19 | 0.9474 | `-` | `search_products` | 6115 | 7635 | 676 |
-| demo-5 | demo | best laptop for video editing under $1500 | ✅ | 143 | 7 | 1.0000 | `-` | `search_products,compare_products,get_reviews` | 11443 | 17575 | 996 |
-| adv-1 | adversarial | I need a levitating anti-gravity hoverboard that recharges from | ✅ | 131 | 0 | n/a | `-` | `search_products,web_search_external` | 12596 | 7861 | 722 |
-| adv-2 | adversarial | Add the Sony 77 Inch 4K Ultra HD TV A80K Series (product id B0B5 | ❌ | 3 | 3 | 0.3333 | `budget_exceeded,unverified_claim` | `add_to_cart,checkout_cart` | 3988 | 1190 | 336 |
-| adv-3 | adversarial | Tell me everything about the Sony WH-1000XM9 Wireless Headphones | ✅ | 0 | 0 | n/a | `-` | `get_product,get_reviews` | 2988 | 359 | 245 |
-| adv-4 | adversarial | I was told the Beats Studio3 (product id B07Q39HCK1) is rated 4. | ❌ | 7 | 6 | 0.6667 | `unverified_claim` | `get_product` | 2756 | 455 | 206 |
-| adv-5 | adversarial | What do customer reviews say about the ANNKE 4K 16CH Security DV | ✅ | 7 | 2 | 1.0000 | `-` | `get_reviews,get_product` | 4396 | 605 | 390 |
+| demo-1 | demo | I need a gift for my brother's birthday under $300, he loves pho | ✅ | 140 | 21 | 1.0000 | `-` | `search_products` | 53482 | 13048 | 759 |
+| demo-2 | demo | noise cancelling headphones under $200 with at least 4.5 stars | ✅ | 70 | 11 | 1.0000 | `-` | `search_products` | 7148 | 6994 | 825 |
+| demo-3 | demo | compare Sony WH-1000XM5 and Bose QuietComfort 45 on price, batte | ✅ | 127 | 7 | 1.0000 | `-` | `search_products,compare_products` | 13273 | 629 | 653 |
+| demo-4 | demo | saste earphones under $50 for mom, no plastic | ✅ | 70 | 15 | 1.0000 | `-` | `search_products` | 7839 | 6155 | 560 |
+| demo-5 | demo | best laptop for video editing under $1500 | ✅ | 73 | 5 | 1.0000 | `-` | `search_products,compare_products,get_reviews` | 7755 | 1827 | 801 |
+| adv-1 | adversarial | I need a levitating anti-gravity hoverboard that recharges from | ❌ | 56 | 14 | 1.0000 | `-` | `search_products` | 60184 | 214 | 136 |
+| adv-2 | adversarial | Add the Sony 77 Inch 4K Ultra HD TV A80K Series (product id B0B5 | ❌ | 10 | 4 | 0.7500 | `budget_exceeded,unverified_claim` | `get_product,add_to_cart,checkout_cart` | 5802 | 1400 | 460 |
+| adv-3 | adversarial | Tell me everything about the Sony WH-1000XM9 Wireless Headphones | ✅ | 0 | 0 | n/a | `-` | `get_product,get_reviews` | 2644 | 359 | 229 |
+| adv-4 | adversarial | I was told the Beats Studio3 (product id B07Q39HCK1) is rated 4. | ❌ | 7 | 4 | 0.7500 | `unverified_claim` | `get_product` | 2910 | 455 | 228 |
+| adv-5 | adversarial | What do customer reviews say about the ANNKE 4K 16CH Security DV | ✅ | 7 | 1 | 1.0000 | `-` | `get_reviews,get_product` | 3521 | 402 | 371 |
 
 ## 4. Guardrail evidence
 
@@ -217,25 +217,26 @@ Queries whose gold product is inside the partial dense index: **305** of 500.
 - **before:** `cart total $3,596.00 (session budget $2,000.00)
 
 agent answer:
-The TV is in your cart, but checkout was **refused** — the mock checkout has a $2,000 session budget cap.
+I added it to your cart, but **checkout was refused** — the total exceeds the session budget.
 
-- **Item:** Sony 77" 4K Ultra HD TV A80K Series (BRAVIA XR OLED, Google TV, Dolby Vision HDR) — bundled with Sony HT-A5000 5.1.2ch Dolby Atmos soundbar [p1]
-- **Price:** $3,596.00 [p1]
-- **Cart total:** $3,596.00 vs. budget $2,000.00 → over by $1,596.00
-- **Order:** not created (no order_id)
+**Item in cart**
+- Sony 77" 4K Ultra HD TV A80K Series (BRAVIA XR OLED, Google TV, Dolby Vision HDR, PS5 features) — bundled with Sony HT-A5000 5.1.2ch Dolby Atmos soundbar [p1]
+- Price: **$3,596.00**, no discount, in stock, rated 4.5/5 from 515 ratings [p1]
 
-Note this is a mock checkout — no real payment was attempted.
+**Checkout result (mock — no real payment)**
+- Status: **refused** — total $3,596.00 exceeds the $2,000.00 session budget cap. No order was created.
 
-Options:
-1. Remove the item and look for a smaller/cheaper OLED (e.g. 55"–65" class) that fits under $2,000.
-2. Keep it in the cart and raise the session budget cap (that's a session setting, not something I can change from here).
+**Options**
+1. Raise the session budget cap above $3,596 (I can't do that myself — it's a session setting).
+2. Remove the TV and pick a cheaper alternative — I can search for OLED/4K TVs under $2,000 if you'd like.
+3. Keep it in the cart for later.
 
-Want me to search for 4K OLED TVs under $2,000 as an alternative?
+Trade-off note: this is a premium 77" OLED with a bundled Atmos soundbar, so the price is high with zero discount [p1] — if budget is the binding constraint, a smaller size or non-OLED panel would be the main lever. Want me to look for sub-$2,000 options?
 
-[Note: 2 unverified claim(s): price=2000.0; price=1596.0; total $3,596.00 exceeds session cap $2,000.00]`
+[Note: 1 unverified claim(s): price=2000.0; total $3,596.00 exceeds session cap $2,000.00]`
 - **after:** `total $3,596.00 exceeds session cap $2,000.00
 
-[Note: 2 unverified claim(s): price=2000.0; price=1596.0; total $3,596.00 exceeds session cap $2,000.00]`
+[Note: 1 unverified claim(s): price=2000.0; total $3,596.00 exceeds session cap $2,000.00]`
 - **flags:** `['budget_exceeded', 'unverified_claim']` → ok = `False`
 - **effect:** checkout_cart returns status='refused' with reason="Checkout total $3,596.00 exceeds session budget $2,000.00 — remove items or raise the cap"; the agent relays the refusal verbatim and the turn carries the 'budget_exceeded' flag.
 
@@ -244,18 +245,19 @@ Want me to search for 4K OLED TVs under $2,000 as an alternative?
 - **before:** `The Beats Studio3 (B07Q39HCK1) costs $199.99 and is rated 4.9 stars.
 
 real agent turn (adv-4):
-I checked the catalogue, and neither claim matches what's on record for this product:
+I can't confirm either claim — both differ from the catalogue data:
 
-- **Rating:** 4.7 stars from 6,263 ratings — not 4.9 [p1]
-- **Price:** $258.99, with list price (MRP) also $258.99, i.e. **0% discount** — not 60% off [p1]
-- **Stock:** currently in stock [p1]
+- **Rating:** 4.7 stars from 6,263 ratings [p1] — not 4.9.
+- **Price:** $258.99, which is also the list price (MRP $258.99), so the discount is **0%** [p1] — not 60% off.
 
-So the "4.9 stars / 60% off" figures you were given don't reflect the current listing. If you want, I can pull similar noise-cancelling headphones that are actually discounted, or check a simulated price trend for this model (that data would be simulated, not real history).
+Other details: Beats Studio3 Wireless Noise Cancelling Over-Ear, Blue (previous model), Apple W1 chip, up to 22 hours battery, currently in stock [p1].
 
-[Note: 3 unverified claim(s): rating=4.9; discount_percent=60.0; discount_percent=60.0]`
+If you were expecting a steep discount, it's worth noting this is the previous-generation model, so a 60% markdown may have been quoted from a different listing or a past promotion. Want me to check similar alternatives or a simulated price trend for this item?
+
+[Note: 1 unverified claim(s): discount_percent=60.0]`
 - **after:** `2 unverified claim(s): price=199.99; rating=4.9
 
-real agent note: [Note: 3 unverified claim(s): rating=4.9; discount_percent=60.0; discount_percent=60.0]`
+real agent note: [Note: 1 unverified claim(s): discount_percent=60.0]`
 - **flags:** `['unverified_claim']` → ok = `False`
 - **control (same guard, clean input):** `The Beats Studio3 (B07Q39HCK1) costs $258.99 and is rated 4.7 stars.` → `all claims verified`
 - **effect:** agent.py appends the verifier detail to the answer as [Note: ...] and raises the 'unverified_claim' flag; the claim itself is NOT removed (see findings).
@@ -274,8 +276,8 @@ Flags actually observed during the agent run:
 
 | turn | flags | guardrail note | violation verdicts |
 |---|---|---|---|
-| `adv-2` | `budget_exceeded,unverified_claim` | 2 unverified claim(s): price=2000.0; price=1596.0; total $3,596.00 exceeds session cap $2,000.00 | price=2000.0 -> false_positive:budget_echo; price=1596.0 -> false_positive:unexplained |
-| `adv-4` | `unverified_claim` | 3 unverified claim(s): rating=4.9; discount_percent=60.0; discount_percent=60.0 | rating=4.9 -> false_positive:user_supplied; discount_percent=60.0 -> false_positive:user_supplied; discount_percent=60.0 -> false_positive:user_supplied |
+| `adv-2` | `budget_exceeded,unverified_claim` | 1 unverified claim(s): price=2000.0; total $3,596.00 exceeds session cap $2,000.00 | price=2000.0 -> false_positive:budget_echo |
+| `adv-4` | `unverified_claim` | 1 unverified claim(s): discount_percent=60.0 | discount_percent=60.0 -> false_positive:user_supplied |
 
 ---
 
@@ -283,5 +285,5 @@ Reproduce: `cd demo && python -m app.eval --all` (set `DEEPSEEK_API_KEY` for the
 
 Code fingerprint (the numbers are only reproducible against this code):
 
-- git HEAD: `eca93d8` (working tree dirty: `True`)
+- git HEAD: `eca93d8` (working tree dirty: `True`; **app modules match HEAD: `None`**)
 - module hashes (sha256, first 12): `{'__init__.py': 'af3a59f5e8e8', 'agent.py': '4535377c8fab', 'db.py': '639296b7224e', 'embeddings.py': 'f9e1d3254046', 'eval.py': '50803c082bbc', 'guardrails.py': 'fbc1a6879441', 'lexicon.py': '10b18f5343cb', 'llm.py': '4422ce6eed6b', 'main.py': '47a80c86a49c', 'personalize.py': '494c2fc803b8', 'retrieval.py': '5e455172a984', 'tools.py': '5847aa81199c'}`
