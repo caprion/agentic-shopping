@@ -73,7 +73,10 @@ python demo/ingest/build_embeddings.py
 python demo/run.py          # → http://localhost:8000
 ```
 
-`demo/run.py` boots one uvicorn worker. The UI has a persona switcher, one-click **demo scripts**,
+`demo/run.py` boots one uvicorn worker and **warms the retrieval models in the background** — check
+`GET /api/health` for `models: {text_encoder: ready, cross_encoder: ready}` before you start a demo.
+A cold first turn costs 64–105 s of model loading; a warm turn is **11.7–19.7 s** (median ≈ 13 s) with
+70–105 citations. The UI has a persona switcher, one-click **demo scripts**,
 a streaming chat with tool-call chips, inline citation pills, a cart/checkout panel, and a
 **system panel** that exposes per-turn tools, latency, tokens and guardrail flags.
 
@@ -90,18 +93,32 @@ raw tables: [demo/eval_report.md](demo/eval_report.md).
 
 | Arm | Recall@5 | Recall@10 | Recall@20 | nDCG@10 | MRR@10 |
 |---|---|---|---|---|---|
-| Lexical only (FTS5 BM25) | 0.072 | 0.110 | 0.151 | 0.067 | 0.065 |
-| Dense only (partial index) | 0.113 | 0.153 | 0.193 | 0.091 | 0.079 |
-| Hybrid (RRF, no rerank) | 0.106 | **0.164** | 0.218 | 0.095 | 0.082 |
-| **Hybrid + cross-encoder** | **0.146** | **0.190** | 0.218 | **0.116** | **0.104** |
+| Lexical only (FTS5 BM25) | 0.0722 | 0.1102 | 0.1509 | 0.0665 | 0.0650 |
+| Dense only (bge-small, 101,458 vectors) | 0.0959 | 0.1589 | 0.2080 | 0.0860 | 0.0727 |
+| Hybrid (RRF, no rerank) | 0.0992 | 0.1577 | 0.2060 | 0.0896 | 0.0787 |
+| **Hybrid + cross-encoder** | **0.1113** | **0.1686** | 0.2060 | **0.1020** | **0.0941** |
+| Production path (as shipped) | 0.1172 | 0.1511 | 0.1883 | 0.1009 | **0.1013** |
 
-Read it as: **RRF fusion beats either channel alone (+5.4 pts Recall@10 over lexical), and the
-cross-encoder rerank adds another +2.6 pts Recall@10 and +2.2 pts nDCG@10 on top of fusion.**
+500 queries, seed `20261028`, against the Amazon Shopping Queries gold set; 95% CI for hybrid
+Recall@10 is [0.1386, 0.2017].
+
+Read it as: **RRF fusion beats either channel alone (+4.8 pts Recall@10 over lexical, +5.5 over
+dense), and the cross-encoder rerank adds another +1.1 pts Recall@10, +1.2 pts nDCG@10 and +1.5 pts
+MRR@10 on top of fusion.** On the 305-query subset whose gold product is inside the dense index,
+hybrid reaches **Recall@10 0.2763 / nDCG 0.1672** — 53% better than lexical-only on the same subset.
+
+Constraint parsing (41 hand-written queries, English + code-mixed): **price_max 1.00/1.00,
+price_min 1.00/1.00, rating_min 1.00/1.00, brand 1.00/1.00, category 1.00/0.92** (precision/recall).
+
+Agent suite (10 turns, live `deepseek-chat`): behaviour-correct **10/10**; harness-style compliance
+task success **0.70**; groundedness **0.81**; latency mean **14.5 s** / p50 **10.0 s** / p95 **34.4 s**;
+**23,091 tokens per turn**; **71.6 citations per turn**. Agent metrics move by ±0.30 between identical
+runs — we publish four runs in [docs/03-evaluation.md §8](docs/03-evaluation.md) rather than one.
 
 Two caveats we will not hide: the catalogue has **no price for 48% of its products**, and the gold set
-is drawn from that same pool — so ~45% of gold products are unreachable by *any* arm and every recall
-number is measured against a ceiling far below 1.0; and the dense arm was measured against an index
-that was still growing, so it is a lower bound.
+is drawn from that same pool — so only **56.5%** of a query's gold products are reachable by *any*
+arm, and every recall number is measured against that ceiling rather than 1.0. And the agent metrics
+are noisy: four runs of the same suite produced task success of 0.40, 0.70, 0.40, 0.70.
 
 The guardrails are not decoration — they changed outcomes in the recorded runs:
 

@@ -63,7 +63,13 @@ class BudgetGuard:
 # StockGuard
 # --------------------------------------------------------------------------
 class StockGuard:
-    def check(self, conn, product_id: str) -> dict:
+    # Phrases that mean the agent *declared* the item unavailable — that is a
+    # truthful statement, not a stock violation.
+    UNAVAILABLE = re.compile(
+        r"(?i)\bout of stock\b|\bnot (?:currently )?(?:available|in stock)\b|"
+        r"\bunavailable\b|\bsold out\b|\bno longer available\b|\bdiscontinued\b")
+
+    def check(self, conn, product_id: str, answer: str | None = None) -> dict:
         try:
             row = db.product_row(conn, product_id)
         except Exception as exc:  # noqa: BLE001
@@ -73,13 +79,19 @@ class StockGuard:
             return _ok(f"{product_id} not in catalogue; no stock claim made")
         if row["in_stock"]:
             return _ok(f"{row['title']} is in stock")
+        # The product is not sellable. That is only a *violation* if the answer
+        # claims it is available (or offers to buy it). Saying "it is out of
+        # stock" is the correct behaviour and must not be flagged.
+        if answer and self.UNAVAILABLE.search(answer or ""):
+            return _ok(f"{row['title']} is out of stock — the answer says so")
         return _bad(["out_of_stock"], f"{row['title']} ({product_id}) is out of stock")
 
-    def check_many(self, conn, product_ids: list[str]) -> dict:
+    def check_many(self, conn, product_ids: list[str],
+                   answer: str | None = None) -> dict:
         flags: list[str] = []
         details: list[str] = []
         for pid in product_ids or []:
-            r = self.check(conn, pid)
+            r = self.check(conn, pid, answer)
             if not r["ok"]:
                 flags.extend(r["flags"])
                 details.append(r["detail"])
@@ -99,9 +111,23 @@ _PERCENT_OFF = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*%\s*(?:off|discount)", re.I)
 # not a product-price claim and must not be flagged as unverified.
 _LIMIT_ECHO = re.compile(
     r"(?i)\b(?:under|below|sub[-\s]?|less than|within|up to|at most|a maximum of|"
-    r"max(?:imum)?|or less|or cheaper|budget(?:\s+cap)?|cap of|cheaper than|"
-    r"no more than|not more than|session cap|starting at|from)\s*"
+    r"max(?:imum)?|or less|or cheaper|budget(?:\s+(?:cap|limit))?|cap of|"
+    r"above|over|more than|typically start above|start above|"
+    r"cheaper than|no more than|not more than|session cap|starting at|from|"
+    r"spend up to|ceiling|limit)\s*"
+    r"(?:(?:of|is|at|equal to|:|=|,)?\s*)?"
     r"[*_\s]*(?:usd|\$|rs\.?|inr)?\s*[*_\s]*([0-9][0-9,]*(?:\.[0-9]+)?)")
+# An approximate price ("~$39.99", "around $40") is a paraphrase of a review
+# quote, not a verifiable claim about the catalogue.
+_APPROX_PRICE = re.compile(
+    r"(?i)(?:~|about|around|approximately|approx|roughly|near)\s*"
+    r"(?:usd|\$|rs\.?|inr)?\s*[*_\s]*[0-9][0-9,]*(?:\.[0-9]+)?")
+
+# The reversed form: "$2,000 budget", "$2,000 cap", "$2,000 limit".
+_LIMIT_ECHO_POST = re.compile(
+    r"(?i)(?:usd|\$|rs\.?|inr)?\s*[*_\s]*[0-9][0-9,]*(?:\.[0-9]+)?\s*[*_\s]*"
+    r"(?:budget(?:\s+(?:cap|limit))?|cap|limit|ceiling|maximum)\b")
+
 # A price *range* ("the $1,200-1,500 band") is a budget band, not a price.
 _PRICE_RANGE = re.compile(
     r"[*_\s]*(?:\$|usd|rs\.?|inr)?\s*[*_\s]*[0-9][0-9,]*(?:\.[0-9]+)?\s*[-–—~]\s*"
@@ -141,6 +167,8 @@ class ClaimVerifier:
         price_text = _LIMIT_ECHO.sub(" ", answer or "")
         price_text = _PRICE_RANGE.sub(" ", price_text)
         price_text = _DERIVED_DIFF.sub(" ", price_text)
+        price_text = _LIMIT_ECHO_POST.sub(" ", price_text)
+        price_text = _APPROX_PRICE.sub(" ", price_text)
         for v in self._nums(_RUPEE.findall(price_text)):
             if not any(abs(v - k) <= max(self.PRICE_TOL * abs(k), self.PRICE_ABS)
                        for k in known_prices):

@@ -1352,16 +1352,21 @@ def _budget_echo_hit(answer: str, value: float) -> bool:
 
     The keyword must be adjacent to the number — a loose context window
     produced false positives ("up to 22 hours battery" next to a rating).
+    Thousands separators ("$2,000.00") are handled by parsing the matched
+    number rather than string-matching it.
     """
     text = re.sub(r"[*_`]", " ", answer or "")
-    num = (re.escape(str(int(value))) if float(value).is_integer()
-           else re.escape(str(value)))
     pat = re.compile(
         r"(?i)(?:under|below|sub[-\s]?|less than|within|up to|at most|"
         r"a maximum of|max(?:imum)?|or less|or cheaper|budget(?:\s+cap)?|"
         r"cap of|cheaper than|no more than|not more than|session cap|"
-        r"price cap)\s*(?:usd|\$|rs\.?|inr)?\s*" + num + r"(?![\d.])" + _UNIT_TAIL)
-    return bool(pat.search(text))
+        r"price cap)\s*(?:usd|\$|rs\.?|inr)?\s*"
+        r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)")
+    for m in pat.finditer(text):
+        v = _num(m.group(1).replace(",", ""))
+        if v is not None and abs(v - value) < 0.01:
+            return True
+    return False
 
 
 def classify_guardrail_claim(conn, answer: str, user_message: str,

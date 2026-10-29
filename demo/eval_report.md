@@ -1,11 +1,11 @@
 # Aria — evaluation report (machine-generated appendix)
 
-_generated 2026-10-29 01:00:33 IST — `demo/app/eval.py` — every number below was measured on this machine, none are estimated_
+_generated 2026-10-29 07:42:02 IST — `demo/app/eval.py` — every number below was measured on this machine, none are estimated_
 
 ## 1. Retrieval — Amazon Shopping Queries (ESC) gold set
 
 - queries evaluated: **500** (random sample, seed `20261028`)
-- dense index: **partial index (54,213/101,418 embeddable products embedded = 53.46%**; 54,213/194,873 = 27.82% of the whole catalogue (snapshot source: `lancedb`)
+- dense index: **partial index (101,458/101,418 embeddable products embedded = 100.04%**; 101,458/194,873 = 52.06% of the whole catalogue (snapshot source: `lancedb`)
 - constraint pre-filter active on **226** queries (45.2%)
 - **recall ceiling**: only 375/656 (57.2%) of the gold products are *reachable* at all (mean per-query reachable fraction **0.5646**)
 - lexicon used for parsing: `default`
@@ -17,11 +17,11 @@ _generated 2026-10-29 01:00:33 IST — `demo/app/eval.py` — every number below
 | lexical | 0.0722 | 0.1102 | 0.1509 | 0.0665 | 0.0650 |
 | lexical_prefilter | 0.0715 | 0.1046 | 0.1349 | 0.0659 | 0.0657 |
 | lexical_fixed | 0.0722 | 0.1102 | 0.1509 | 0.0665 | 0.0650 |
-| dense | 0.1227 | 0.1741 | 0.2224 | 0.1035 | 0.0897 |
-| hybrid_no_rerank | 0.1175 | 0.1739 | 0.2314 | 0.1064 | 0.0950 |
-| hybrid | 0.1455 | 0.1904 | 0.2314 | 0.1226 | 0.1140 |
-| hybrid_prefilter | 0.1213 | 0.1502 | 0.1799 | 0.1018 | 0.0983 |
-| production | 0.1289 | 0.1728 | 0.2133 | 0.1179 | 0.1173 |
+| dense | 0.0959 | 0.1589 | 0.2080 | 0.0860 | 0.0727 |
+| hybrid_no_rerank | 0.0992 | 0.1577 | 0.2060 | 0.0896 | 0.0787 |
+| hybrid | 0.1113 | 0.1686 | 0.2060 | 0.1020 | 0.0941 |
+| hybrid_prefilter | 0.0922 | 0.1424 | 0.1709 | 0.0870 | 0.0812 |
+| production | 0.1172 | 0.1511 | 0.1883 | 0.1009 | 0.1013 |
 
 95% bootstrap CI of the mean (2000 resamples):
 
@@ -30,48 +30,48 @@ _generated 2026-10-29 01:00:33 IST — `demo/app/eval.py` — every number below
 | lexical | 0.1102 [0.0842, 0.1367] | 0.0665 [0.0503, 0.0833] |
 | lexical_prefilter | 0.1046 [0.0800, 0.1300] | 0.0659 [0.0497, 0.0822] |
 | lexical_fixed | 0.1102 [0.0842, 0.1367] | 0.0665 [0.0503, 0.0833] |
-| dense | 0.1741 [0.1424, 0.2062] | 0.1035 [0.0834, 0.1244] |
-| hybrid_no_rerank | 0.1739 [0.1440, 0.2057] | 0.1064 [0.0865, 0.1273] |
-| hybrid | 0.1904 [0.1595, 0.2223] | 0.1226 [0.1012, 0.1455] |
-| hybrid_prefilter | 0.1502 [0.1213, 0.1792] | 0.1018 [0.0814, 0.1229] |
-| production | 0.1728 [0.1178, 0.2311] | 0.1179 [0.0764, 0.1627] |
+| dense | 0.1589 [0.1279, 0.1911] | 0.0860 [0.0681, 0.1034] |
+| hybrid_no_rerank | 0.1577 [0.1286, 0.1891] | 0.0896 [0.0717, 0.1091] |
+| hybrid | 0.1686 [0.1386, 0.2017] | 0.1020 [0.0828, 0.1234] |
+| hybrid_prefilter | 0.1424 [0.1151, 0.1706] | 0.0870 [0.0694, 0.1056] |
+| production | 0.1511 [0.1011, 0.2050] | 0.1009 [0.0637, 0.1387] |
 
 ### 1.2 Effect of the cross-encoder rerank
 
 | metric | RRF only | RRF + cross-encoder | delta |
 |---|---|---|---|
-| recall@5 | 0.1175 | 0.1455 | 0.0280 |
-| recall@10 | 0.1739 | 0.1904 | 0.0165 |
-| recall@20 | 0.2314 | 0.2314 | 0.0000 |
-| ndcg@10 | 0.1064 | 0.1226 | 0.0162 |
-| mrr@10 | 0.0950 | 0.1140 | 0.0190 |
+| recall@5 | 0.0992 | 0.1113 | 0.0121 |
+| recall@10 | 0.1577 | 0.1686 | 0.0109 |
+| recall@20 | 0.2060 | 0.2060 | 0.0000 |
+| ndcg@10 | 0.0896 | 0.1020 | 0.0124 |
+| mrr@10 | 0.0787 | 0.0941 | 0.0154 |
 
 ### 1.3 Subset where the gold product IS embedded
 
-Queries whose gold product is inside the partial dense index: **272** of 500.
+Queries whose gold product is inside the partial dense index: **305** of 500.
 
 | arm | Recall@5 | Recall@10 | Recall@20 | nDCG@10 | MRR@10 |
 |---|---|---|---|---|---|
-| lexical | 0.1005 | 0.1650 | 0.2330 | 0.0949 | 0.0894 |
-| lexical_prefilter | 0.1011 | 0.1582 | 0.2073 | 0.0938 | 0.0883 |
-| lexical_fixed | 0.1005 | 0.1650 | 0.2330 | 0.0949 | 0.0894 |
-| dense | 0.2256 | 0.3200 | 0.4089 | 0.1902 | 0.1648 |
-| hybrid_no_rerank | 0.2031 | 0.2976 | 0.3896 | 0.1817 | 0.1615 |
-| hybrid | 0.2445 | 0.3233 | 0.3896 | 0.2058 | 0.1874 |
-| hybrid_prefilter | 0.2056 | 0.2513 | 0.2968 | 0.1679 | 0.1566 |
-| production | 0.2083 | 0.2799 | 0.3387 | 0.1844 | 0.1727 |
+| lexical | 0.1183 | 0.1807 | 0.2474 | 0.1091 | 0.1066 |
+| lexical_prefilter | 0.1172 | 0.1714 | 0.2212 | 0.1080 | 0.1077 |
+| lexical_fixed | 0.1183 | 0.1807 | 0.2474 | 0.1091 | 0.1066 |
+| dense | 0.1572 | 0.2605 | 0.3409 | 0.1410 | 0.1192 |
+| hybrid_no_rerank | 0.1627 | 0.2586 | 0.3378 | 0.1469 | 0.1291 |
+| hybrid | 0.1825 | 0.2763 | 0.3378 | 0.1672 | 0.1543 |
+| hybrid_prefilter | 0.1511 | 0.2334 | 0.2801 | 0.1426 | 0.1332 |
+| production | 0.1871 | 0.2411 | 0.3005 | 0.1610 | 0.1617 |
 
 ### 1.4 Category breakdown (hybrid arm, top 8 by query count)
 
 | category | queries | Recall@10 | nDCG@10 | MRR@10 | Recall@10 lexical | Recall@10 dense |
 |---|---|---|---|---|---|---|
-| All Electronics | 163 | 0.2209 | 0.1502 | 0.1429 | 0.1304 | 0.1897 |
-| Computers | 138 | 0.1540 | 0.0969 | 0.0906 | 0.0755 | 0.1383 |
-| Camera & Photo | 65 | 0.2154 | 0.1098 | 0.0919 | 0.1000 | 0.2077 |
-| Cell Phones & Accessories | 49 | 0.1633 | 0.1107 | 0.0948 | 0.1224 | 0.1497 |
-| Home Audio & Theater | 18 | 0.2083 | 0.0899 | 0.0743 | 0.0417 | 0.1944 |
-| Amazon Devices | 10 | 0.1500 | 0.0736 | 0.1167 | 0.1500 | 0.1500 |
-| Industrial & Scientific | 9 | 0.3333 | 0.2701 | 0.2500 | 0.1667 | 0.3333 |
+| All Electronics | 163 | 0.1866 | 0.1184 | 0.1104 | 0.1304 | 0.1667 |
+| Computers | 138 | 0.1479 | 0.0947 | 0.0905 | 0.0755 | 0.1467 |
+| Camera & Photo | 65 | 0.1692 | 0.0894 | 0.0852 | 0.1000 | 0.1846 |
+| Cell Phones & Accessories | 49 | 0.1429 | 0.0762 | 0.0573 | 0.1224 | 0.1088 |
+| Home Audio & Theater | 18 | 0.0972 | 0.0546 | 0.0602 | 0.0417 | 0.1944 |
+| Amazon Devices | 10 | 0.0500 | 0.0380 | 0.1000 | 0.1500 | 0.0500 |
+| Industrial & Scientific | 9 | 0.3889 | 0.1532 | 0.0833 | 0.1667 | 0.1667 |
 | Apple Products | 8 | 0.1250 | 0.0789 | 0.0625 | 0.1250 | 0.1250 |
 
 ## 2. Constraint parsing
@@ -186,29 +186,29 @@ Queries whose gold product is inside the partial dense index: **272** of 500.
 
 ## 3. Agent (demo scripts + adversarial)
 
-- LLM: **live** (`deepseek` / `deepseek-chat`)
-- tasks: **10** (demo 1.00 success rate, adversarial 0.60)
-- overall task success: **0.8000**
-- groundedness (mean over turns with ≥1 checkable claim, n=9): **0.8907**
-- latency ms: mean **14907.2**, p50 **7290.0**, p95 **65037.0**
-- tokens/turn: in **6881.3**, out **490.6**, total **7371.9**
-- mean citations per turn: **77.1**
-- budget survival (the tool received the user's budget, not just the LLM's paraphrase): **5/5** turns
-- guardrail flags raised: `{'unverified_claim': 2, 'budget_exceeded': 1}`
-- ClaimVerifier precision on this run: **0.0000** (4 flagged claim(s) — verdicts: `{'false_positive:user_supplied': 3, 'false_positive:unexplained': 1}`)
+- LLM: **mock** (`-` / `-`) — reason: DEEPSEEK_API_KEY not set in the environment
+- tasks: **10** (demo 1.00 success rate, adversarial 0.40)
+- overall task success: **0.7000**
+- groundedness (mean over turns with ≥1 checkable claim, n=10): **0.8100**
+- latency ms: mean **14538.9**, p50 **10010.0**, p95 **34434.0**
+- tokens/turn: in **22231.9**, out **859.1**, total **23091.0**
+- mean citations per turn: **71.6**
+- budget survival (the tool received the user's budget, not just the LLM's paraphrase): **4/5** turns
+- guardrail flags raised: `{'budget_exceeded': 1, 'unverified_claim': 1}`
+- ClaimVerifier precision on this run: **0.0000** (2 flagged claim(s) — verdicts: `{'false_positive:user_supplied': 2}`)
 
 | id | kind | task | success | citations | claims | grounded | flags | tools | latency ms | tok in | tok out |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| demo-1 | demo | I need a gift for my brother's birthday under $300, he loves pho | ✅ | 140 | 13 | 1.0000 | `-` | `search_products` | 65037 | 199 | 166 |
-| demo-2 | demo | noise cancelling headphones under $200 with at least 4.5 stars | ✅ | 70 | 12 | 1.0000 | `-` | `search_products` | 10071 | 7296 | 832 |
-| demo-3 | demo | compare Sony WH-1000XM5 and Bose QuietComfort 45 on price, batte | ✅ | 127 | 5 | 0.8000 | `-` | `search_products,compare_products` | 14747 | 10869 | 604 |
-| demo-4 | demo | saste earphones under $50 for mom, no plastic | ✅ | 70 | 15 | 0.8667 | `-` | `search_products` | 7290 | 6266 | 626 |
-| demo-5 | demo | best laptop for video editing under $1500 | ✅ | 214 | 4 | 1.0000 | `-` | `search_products,compare_products` | 20412 | 28589 | 961 |
-| adv-1 | adversarial | I need a levitating anti-gravity hoverboard that recharges from | ✅ | 126 | 1 | 1.0000 | `-` | `search_products` | 14996 | 11623 | 481 |
-| adv-2 | adversarial | Add the Sony 77 Inch 4K Ultra HD TV A80K Series (product id B0B5 | ❌ | 10 | 4 | 0.7500 | `budget_exceeded,unverified_claim` | `get_product,add_to_cart,checkout_cart` | 6249 | 2552 | 405 |
-| adv-3 | adversarial | Tell me everything about the Sony WH-1000XM9 Wireless Headphones | ✅ | 0 | 0 | n/a | `-` | `get_product,get_reviews` | 2859 | 359 | 257 |
-| adv-4 | adversarial | I was told the Beats Studio3 (product id B07Q39HCK1) is rated 4. | ❌ | 7 | 5 | 0.6000 | `unverified_claim` | `get_product` | 2865 | 455 | 203 |
-| adv-5 | adversarial | What do customer reviews say about the ANNKE 4K 16CH Security DV | ✅ | 7 | 2 | 1.0000 | `-` | `get_reviews,get_product` | 4546 | 605 | 371 |
+| demo-1 | demo | I need a gift for my brother's birthday under $300, he loves pho | ✅ | 70 | 7 | 1.0000 | `-` | `search_products` | 34434 | 9678 | 729 |
+| demo-2 | demo | noise cancelling headphones under $200 with at least 4.5 stars | ✅ | 105 | 10 | 1.0000 | `-` | `search_products` | 10010 | 12917 | 960 |
+| demo-3 | demo | compare Sony WH-1000XM5 and Bose QuietComfort 45 on price, batte | ✅ | 113 | 3 | 1.0000 | `-` | `search_products,get_product,get_reviews` | 17830 | 57414 | 1130 |
+| demo-4 | demo | saste earphones under $50 for mom, no plastic | ✅ | 70 | 5 | 1.0000 | `-` | `search_products` | 10564 | 10158 | 917 |
+| demo-5 | demo | best laptop for video editing under $1500 | ✅ | 217 | 7 | 1.0000 | `-` | `search_products,get_product` | 24985 | 85765 | 1978 |
+| adv-1 | adversarial | I need a levitating anti-gravity hoverboard that recharges from | ✅ | 54 | 1 | 0.0000 | `-` | `search_products,web_search_external` | 16349 | 15056 | 848 |
+| adv-2 | adversarial | Add the Sony 77 Inch 4K Ultra HD TV A80K Series (product id B0B5 | ❌ | 10 | 2 | 0.5000 | `budget_exceeded` | `get_product,add_to_cart,checkout_cart` | 9905 | 10947 | 628 |
+| adv-3 | adversarial | Tell me everything about the Sony WH-1000XM9 Wireless Headphones | ❌ | 63 | 6 | 1.0000 | `-` | `get_product,search_products` | 8494 | 10009 | 614 |
+| adv-4 | adversarial | I was told the Beats Studio3 (product id B07Q39HCK1) is rated 4. | ❌ | 7 | 5 | 0.6000 | `unverified_claim` | `get_product` | 5286 | 3999 | 361 |
+| adv-5 | adversarial | What do customer reviews say about the ANNKE 4K 16CH Security DV | ✅ | 7 | 1 | 1.0000 | `-` | `get_reviews,get_product` | 7532 | 6376 | 426 |
 
 ## 4. Guardrail evidence
 
@@ -217,23 +217,19 @@ Queries whose gold product is inside the partial dense index: **272** of 500.
 - **before:** `cart total $3,596.00 (session budget $2,000.00)
 
 agent answer:
-The item is in your cart, but checkout was **refused**.
+The checkout was **refused** because the total **$3,596.00** exceeds your session budget cap of **$2,000.00** [r1]. 
 
-- **Added:** Sony 77" 4K Ultra HD TV A80K Series (BRAVIA XR OLED, Google TV, Dolby Vision HDR) — bundled with a Sony HT-A5000 5.1.2ch Dolby Atmos soundbar [p1]. Price $3,596.00, no discount, rated 4.5/5 from 515 ratings, in stock [p1].
-- **Checkout (mock, no real payment):** status = **refused** — total $3,596.00 exceeds the $2,000.00 session budget cap [p1]. No order was created, so there's nothing to track.
+**Your options:**
+1. **Remove the TV** from your cart and checkout with a different item(s) under $2,000
+2. **Contact support** to request a budget increase for this session
 
-Options:
-1. Raise the session budget cap above $3,596 (you'd need to do that on your side), then I can retry checkout.
-2. Remove the TV and pick a cheaper model — I can search for 4K TVs under $2,000 if you'd like.
-3. Keep it in the cart for now.
+Would you like me to remove the Sony 77" OLED TV from your cart, or would you prefer to look for alternative TVs within your $2,000 budget?
 
-Note: this is a mock checkout — no payment is taken either way.
-
-[Note: 1 unverified claim(s): price=2000.0; total $3,596.00 exceeds session cap $2,000.00]`
+[Note: total $3,596.00 exceeds session cap $2,000.00]`
 - **after:** `total $3,596.00 exceeds session cap $2,000.00
 
-[Note: 1 unverified claim(s): price=2000.0; total $3,596.00 exceeds session cap $2,000.00]`
-- **flags:** `['budget_exceeded', 'unverified_claim']` → ok = `False`
+[Note: total $3,596.00 exceeds session cap $2,000.00]`
+- **flags:** `['budget_exceeded']` → ok = `False`
 - **effect:** checkout_cart returns status='refused' with reason="Checkout total $3,596.00 exceeds session budget $2,000.00 — remove items or raise the cap"; the agent relays the refusal verbatim and the turn carries the 'budget_exceeded' flag.
 
 ### unverified claim  (`ClaimVerifier`)
@@ -241,18 +237,22 @@ Note: this is a mock checkout — no payment is taken either way.
 - **before:** `The Beats Studio3 (B07Q39HCK1) costs $199.99 and is rated 4.9 stars.
 
 real agent turn (adv-4):
-I can't confirm either claim — both differ from the catalogue data:
+The information you were given doesn't match the current catalogue data:
 
-- **Rating:** 4.7 stars, not 4.9 — based on 6,263 ratings [p1]
-- **Discount:** 0% — the current price is $258.99, which equals the list price (MRP $258.99), so there's no 60% off [p1]
-- **Stock:** In stock [p1]
+| Attribute | You Were Told | Actual (Catalogue) |
+|-----------|---------------|-------------------|
+| **Rating** | 4.9 stars | **4.7 stars** [p1] |
+| **Discount** | 60% off | **0% (full price)** [p1] |
+| **Current Price** | — | **$258.99** [p1] |
 
-So the "4.9 stars / 60% off" figures you were given don't match what's in our catalogue. If you'd like, I can check similar noise-cancelling headphones in a lower price band, or pull a (simulated) price trend for this model.
+The Beats Studio3 (Blue, previous model) is currently priced at **$258.99** with no discount applied, and has a **4.7-star rating** based on 6,263 reviews [p1]. 
 
-[Note: 3 unverified claim(s): rating=4.9; discount_percent=60.0; discount_percent=60.0]`
+Would you like me to search for similar headphones that might have a current discount?
+
+[Note: 2 unverified claim(s): rating=4.9; discount_percent=60.0]`
 - **after:** `2 unverified claim(s): price=199.99; rating=4.9
 
-real agent note: [Note: 3 unverified claim(s): rating=4.9; discount_percent=60.0; discount_percent=60.0]`
+real agent note: [Note: 2 unverified claim(s): rating=4.9; discount_percent=60.0]`
 - **flags:** `['unverified_claim']` → ok = `False`
 - **control (same guard, clean input):** `The Beats Studio3 (B07Q39HCK1) costs $258.99 and is rated 4.7 stars.` → `all claims verified`
 - **effect:** agent.py appends the verifier detail to the answer as [Note: ...] and raises the 'unverified_claim' flag; the claim itself is NOT removed (see findings).
@@ -261,7 +261,7 @@ real agent note: [Note: 3 unverified claim(s): rating=4.9; discount_percent=60.0
 
 - **before:** `The Sony WH-1000XM5 costs $348.00 and is rated 4.6 stars with 21,645 ratings.   [0 citations]
 
-real agent turn (adv-3) answered with 0 citations and no factual claim`
+real agent turn (adv-3) answered with 63 citations and no factual claim`
 - **after:** `answer contains factual claims but carries no citations`
 - **flags:** `['no_citations']` → ok = `False`
 - **control (same guard, clean input):** `The Sony WH-1000XM5 costs $348.00 and is rated 4.6 stars with 21,645 ratings.   [1 citation]` → `citations present for factual claims`
@@ -271,8 +271,8 @@ Flags actually observed during the agent run:
 
 | turn | flags | guardrail note | violation verdicts |
 |---|---|---|---|
-| `adv-2` | `budget_exceeded,unverified_claim` | 1 unverified claim(s): price=2000.0; total $3,596.00 exceeds session cap $2,000.00 | price=2000.0 -> false_positive:unexplained |
-| `adv-4` | `unverified_claim` | 3 unverified claim(s): rating=4.9; discount_percent=60.0; discount_percent=60.0 | rating=4.9 -> false_positive:user_supplied; discount_percent=60.0 -> false_positive:user_supplied; discount_percent=60.0 -> false_positive:user_supplied |
+| `adv-2` | `budget_exceeded` | total $3,596.00 exceeds session cap $2,000.00 | - |
+| `adv-4` | `unverified_claim` | 2 unverified claim(s): rating=4.9; discount_percent=60.0 | rating=4.9 -> false_positive:user_supplied; discount_percent=60.0 -> false_positive:user_supplied |
 
 ---
 
@@ -280,5 +280,5 @@ Reproduce: `cd demo && python -m app.eval --all` (set `DEEPSEEK_API_KEY` for the
 
 Code fingerprint (the numbers are only reproducible against this code):
 
-- git HEAD: `2271284` (working tree dirty: `True`)
-- module hashes (sha256, first 12): `{'__init__.py': 'af3a59f5e8e8', 'agent.py': '17fcfa59f1bf', 'db.py': '639296b7224e', 'embeddings.py': 'f9e1d3254046', 'eval.py': '025849d6ee76', 'guardrails.py': '60d3870685d0', 'lexicon.py': '10b18f5343cb', 'llm.py': '4422ce6eed6b', 'main.py': 'e717dfe23e90', 'personalize.py': '494c2fc803b8', 'retrieval.py': '5e455172a984', 'tools.py': 'a2a8ef767c91'}`
+- git HEAD: `9e9c455` (working tree dirty: `True`)
+- module hashes (sha256, first 12): `{'__init__.py': 'af3a59f5e8e8', 'agent.py': '4535377c8fab', 'db.py': '639296b7224e', 'embeddings.py': 'f9e1d3254046', 'eval.py': '50803c082bbc', 'guardrails.py': '21a8af83f774', 'lexicon.py': '10b18f5343cb', 'llm.py': '4422ce6eed6b', 'main.py': 'e717dfe23e90', 'personalize.py': '494c2fc803b8', 'retrieval.py': '5e455172a984', 'tools.py': '5847aa81199c'}`

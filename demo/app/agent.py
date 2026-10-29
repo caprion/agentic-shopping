@@ -253,7 +253,7 @@ def _events(conn, session_id: str, user_id: str | None, user_message: str):
         notes: list[str] = []
         if prompt_res and not prompt_res["ok"]:
             notes.append(prompt_res["detail"])
-        stock_res = gr.StockGuard().check_many(conn, product_ids)
+        stock_res = gr.StockGuard().check_many(conn, product_ids, final_answer)
         if not stock_res["ok"]:
             gr_flags.extend(stock_res["flags"])
             notes.append(stock_res["detail"])

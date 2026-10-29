@@ -470,9 +470,15 @@ def _t_search_products(conn, args, session):
             reason = f"matches your query (score {score:.2f})" if score is not None \
                 else "matches your query"
         compact, cs = _product_facts(conn, pid, reason)
-        if compact:
-            products.append(compact)
-            cites.extend(cs)
+        if compact is None:
+            continue
+        if not compact.get("in_stock"):
+            # A product with no price is not sellable (Amazon's 2023 metadata
+            # leaves ~48% of rows without one). Surfacing it produces answers
+            # that then have to be apologised for, so we drop it here.
+            continue
+        products.append(compact)
+        cites.extend(cs)
     return {"query": query, "count": len(products), "products": products,
             "currency": CURRENCY, "brand_title_rescued": len(rescued)}, cites, None
 

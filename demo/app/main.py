@@ -604,8 +604,45 @@ def _decode_image(image_base64: str):
 # --------------------------------------------------------------------------- #
 # App factory
 # --------------------------------------------------------------------------- #
+_MODEL_STATE = {"text_encoder": "loading", "cross_encoder": "loading"}
+
+
+def _warm_up() -> None:
+    """Load the retrieval models in the background so the first user turn is fast.
+
+    On a cold process the first request pays ~60-90 s of model loading (bge-small
+    + the cross-encoder + the vector store). That is a terrible first impression
+    in a live demo, so we pay it at startup instead — in a background thread, so
+    the server accepts connections immediately.
+    """
+    try:
+        from app import embeddings as E  # noqa: WPS433
+
+        E.get_text_model()
+        _MODEL_STATE["text_encoder"] = "ready"
+        log.info("warm-up: text encoder ready")
+    except Exception as exc:  # noqa: BLE001
+        _MODEL_STATE["text_encoder"] = "unavailable"
+        log.warning("warm-up failed (text encoder): %s", exc)
+    try:
+        from app import retrieval as R  # noqa: WPS433
+
+        R._get_cross_encoder()
+        _MODEL_STATE["cross_encoder"] = "ready"
+        log.info("warm-up: cross-encoder ready")
+    except Exception as exc:  # noqa: BLE001
+        _MODEL_STATE["cross_encoder"] = "unavailable"
+        log.warning("warm-up failed (cross-encoder): %s", exc)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Aria", description="Agentic shopping prototype", version="0.1.0")
+
+    @app.on_event("startup")
+    async def _startup() -> None:
+        import threading
+
+        threading.Thread(target=_warm_up, name="aria-warmup", daemon=True).start()
 
     app.add_middleware(
         CORSMiddleware,
@@ -627,7 +664,8 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             log.warning("health check failed: %s", exc)
         return {"status": "ok" if ok else "degraded", "db": ok,
-                "products": n_products, "time": time.time()}
+                "products": n_products, "models": dict(_MODEL_STATE),
+                "time": time.time()}
 
     # --------------------------------------------------------------- chat
     @app.post("/api/chat")
