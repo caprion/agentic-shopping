@@ -1,7 +1,7 @@
 # 04 — Learnings
 
 What we learned building **Aria**: an agentic shopping assistant on public data, on a 4-vCPU VM, with
-nine agents working in parallel against a written contract.
+fifteen agent instances working in parallel against a written contract.
 
 This is the document that tells you what actually happened, including the parts that did not work. Every
 number below is measured from this repo (`demo/data/app.db`, the `traces` table, `demo/app/*.py`); where
@@ -82,9 +82,10 @@ blends `0.5 * rrf + 0.5 * sigmoid(logit)`. It re-orders the head of the list. It
 because it only ever sees the top 20 — a gold product at rank 41 is unrecoverable. The reranker is a
 precision tool; the recall work has to happen upstream.
 
-**Cold start, three ways.** (a) *Catalogue cold start:* the embedding job has embedded **10,000 of the
-101,418 in-stock products** (`embeddings_done`), so the dense channel currently covers ~10% of what can
-be sold. Today "hybrid" is mostly lexical with a graph garnish. (b) *User cold start:*
+**Cold start, three ways.** (a) *Catalogue cold start:* the embedding job has embedded **101,418 of the
+101,418 sellable products** (101,458 vectors) — the index is complete, so the dense channel covers every
+product that can be sold. During development it covered 10%, and every early number was really a
+measurement of a mostly-lexical system. (b) *User cold start:*
 `personalize.build_profile` returns `n_events = 0` for anyone but the demo user and the re-rank is a
 no-op; we fall back to a popularity prior. (c) *Query cold start:* a query with no lexical and no dense
 neighbour still gets the SQL fallback (rating desc, popularity desc, price asc) — a poor answer, but an
@@ -102,6 +103,9 @@ filtered to under $300 and brand in {Sony}") — but only because the code told 
 **And the honest measurement.** Our first retrieval run on the Amazon Shopping Queries (ESC) gold set
 looked bad, and most of the badness was our own instrumentation:
 
+Our **first** retrieval run (40 ESC queries, ~10% of the catalogue embedded) looked bad, and most of
+the badness was our own instrumentation:
+
 | Measurement (first 40 ESC queries) | Value |
 |---|---|
 | Recall@10 as the harness computes it | **0.063** |
@@ -112,20 +116,34 @@ looked bad, and most of the badness was our own instrumentation:
 | Queries with *zero* gold product in our catalogue | **16 / 40** |
 | Gold pairs excluded by our own `in_stock = 1` filter | **18 / 45** |
 
-Hybrid currently *loses* to lexical on this sample. The diagnosis is not "dense retrieval is useless" —
-it is four separate measurement and coverage faults:
+Hybrid *lost* to lexical on that sample. The diagnosis was not "dense retrieval is useless" — it was
+four separate measurement and coverage faults:
 
 1. Our ingest sets `in_stock = 1` **iff the row has a price**. The Amazon metadata has no price for many
    rows, so 40% of the gold answers were deleted before the retriever could see them. This was our
    schema, not the data.
 2. Only **55%** of ESC gold pairs (2,966 / 5,391 over 4,008 queries) exist in our catalogue at all. ESC
    is drawn from Amazon's US catalogue; ours is four categories.
-3. The dense channel covers 10% of the sellable catalogue.
+3. The dense channel covered 10% of the sellable catalogue at the time (now 100%).
 4. ESC queries are keyword strings — `"$90 iphone not chage"`, `", 1, skullcandy jib wired in-earphone
    without mic (black)"` — and our parser reads `"$90"` as `price_max`, which fights the gold label.
 
 The fixes, in order of expected value: separate `price_known` from `in_stock`; finish the embedding job;
 publish coverage next to the metric; build a constraint-bearing gold set of our own.
+
+**What the same measurement looks like after the fixes** (500 ESC queries, seed `20261028`, complete
+index — full tables and CIs in [03-evaluation.md](03-evaluation.md) §2.1):
+
+| arm | Recall@10 | nDCG@10 | MRR@10 |
+|---|---|---|---|
+| lexical only | 0.1102 | 0.0665 | 0.0650 |
+| dense only | 0.1589 | 0.0860 | 0.0727 |
+| hybrid (RRF, no rerank) | 0.1577 | 0.0896 | 0.0787 |
+| **hybrid + cross-encoder** | **0.1686** | **0.1020** | **0.0941** |
+
+Hybrid now beats lexical by **+5.8 pts Recall@10** and dense by **+1.0 pt**, and the cross-encoder adds
+**+1.1 pts Recall@10 / +1.2 nDCG / +1.5 MRR** on top of fusion. The lesson did not change — it just
+became measurable: *publish the coverage next to the metric, or the metric will lie about you.*
 
 ---
 

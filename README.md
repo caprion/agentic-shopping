@@ -177,6 +177,11 @@ These are real, and worth reading before the demo:
 | [05 — Emerging markets](research/05-india-emerging-markets.md) | Voice, vernacular, trust, COD, pincode logistics — the physics of agentic commerce in India. |
 | [docs/](docs/) | The write-up: measured results, lessons, and the moat map. |
 
+**Start with these two if you only read two:**
+[docs/07-decision-log.md](docs/07-decision-log.md) — every decision we made, with options, rationale,
+outcome and verdict (good *and* bad) — and [docs/08-thought-leadership.md](docs/08-thought-leadership.md) —
+the positions this work supports, the pieces we can publish, and the claims we must not make.
+
 ---
 
 ## 8. How the work was run

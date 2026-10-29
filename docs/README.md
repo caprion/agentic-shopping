@@ -12,6 +12,8 @@ real opportunities are**.
 | 04 | [Learnings](04-learnings.md) | What building it taught us — process, retrieval, grounding, data, eval | Everyone |
 | 05 | [Moats](05-moats.md) | Where the defensible positions are in agentic commerce, and which we can take | Strategy |
 | 06 | [Emerging markets](06-emerging-markets.md) | What changes when the shopper is voice-first, vernacular and price-sensitive | Strategy |
+| 07 | [Decision log](07-decision-log.md) | Every decision we made — options, rationale, outcome and verdict — good and bad | Everyone |
+| 08 | [Thought leadership](08-thought-leadership.md) | The seven positions this work earns us, seven publishable pieces, and the claims we must not make | Writing |
 
 The long-form research dossiers that sit behind these live in [`../research`](../research):
 
@@ -42,3 +44,13 @@ python demo/tests/run_all.py             # smoke tests
 The full evaluation (retrieval metrics on the Amazon Shopping Queries gold set, constraint-parsing
 accuracy, agent task success, groundedness, latency) is reproduced in
 [03-evaluation.md](03-evaluation.md).
+
+## Reading order for a new reader
+
+1. [01-the-product](01-the-product.md) — what it does.
+2. [03-evaluation](03-evaluation.md) — how well it does, with the caveats.
+3. [04-learnings](04-learnings.md) — what building it taught us.
+4. [07-decision-log](07-decision-log.md) — every call we made, and whether it was right.
+5. [05-moats](05-moats.md) — where the defensible positions are.
+6. [02-architecture](02-architecture.md) — how it is built.
+7. [06-emerging-markets](06-emerging-markets.md) — the emerging-market version of the problem.
