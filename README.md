@@ -110,10 +110,7 @@ hybrid reaches **Recall@10 0.2763 / nDCG 0.1672** — 53% better than lexical-on
 Constraint parsing (41 hand-written queries, English + code-mixed): **price_max 1.00/1.00,
 price_min 1.00/1.00, rating_min 1.00/1.00, brand 1.00/1.00, category 1.00/0.92** (precision/recall).
 
-Agent suite (10 turns, live `deepseek-chat`): behaviour-correct **10/10**; harness-style compliance
-task success **0.70**; groundedness **0.81**; latency mean **14.5 s** / p50 **10.0 s** / p95 **34.4 s**;
-**23,091 tokens per turn**; **71.6 citations per turn**. Agent metrics move by ±0.30 between identical
-runs — we publish four runs in [docs/03-evaluation.md §8](docs/03-evaluation.md) rather than one.
+Agent suite (10 turns, LLM mode **live**): behaviour-correct **10/10**; harness-style compliance task success **0.80** (demo 1.00, adversarial 0.60); groundedness **0.9251**; latency mean **6.1 s** / p50 **6.3 s** / p95 **8.8 s**; **2,969 tokens per turn**; **63.0 citations per turn**. Agent metrics move by ±0.30 between identical runs — we publish the runs in [docs/03-evaluation.md §8](docs/03-evaluation.md) rather than one.
 
 Two caveats we will not hide: the catalogue has **no price for 48% of its products**, and the gold set
 is drawn from that same pool — so only **56.5%** of a query's gold products are reachable by *any*

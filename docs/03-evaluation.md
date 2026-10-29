@@ -33,13 +33,13 @@ the appendix. The numbers are only reproducible against that tree.
 | 13 | Constraint parsing — **rating_min** precision / recall | **1.000 / 1.000** | 41 queries, 7 assertions | |
 | 14 | Constraint parsing — **brand** precision / recall | **1.000 / 1.000** | 41 queries, 7 assertions | |
 | 15 | Constraint parsing — **category** precision / recall | **1.000 / 0.9231** | 41 queries, 39 assertions | 3 canonicalisation mismatches — §4.6 |
-| 16 | Agent — **task success** (5 demo + 5 adversarial) | **0.70** | 10 turns | live LLM (`deepseek-chat`); demo 1.00, adversarial 0.40 — see §8 for run-to-run variance |
-| 17 | Agent — **groundedness** | **0.8100** | 8 turns with ≥1 checkable claim | adversarial turns carry the user's false claims |
-| 18 | Agent — latency **mean / p50 / p95** | **14.5 s / 10.0 s / 34.4 s** | 10 turns | p95 is a wall-clock overrun — §4.5 |
-| 19 | Agent — **tokens per turn** (in / out / total) | **22,232 / 859 / 23,091** | 10 turns | input dominates: the agent re-reads tool output every turn |
-| 20 | Agent — mean **citations** per turn | **71.6** | 10 turns | |
+| 16 | Agent — **task success** (5 demo + 5 adversarial) | **0.80** | 10 turns | **live**; demo 1.00, adversarial 0.60 — see §8 for run-to-run variance |
+| 17 | Agent — **groundedness** | **0.9251** | 9 turns with ≥1 checkable claim | adversarial turns carry the user's false claims |
+| 18 | Agent — latency **mean / p50 / p95** | **6.1 s / 6.3 s / 8.8 s** | 10 turns | p95 is a wall-clock overrun — §4.5 |
+| 19 | Agent — **tokens per turn** (in / out / total) | **2,451 / 517 / 2,969** | 10 turns | input dominates: the agent re-reads tool output every turn |
+| 20 | Agent — mean **citations** per turn | **63.0** | 10 turns | |
 | 21 | Guardrails — flags raised | **`budget_exceeded` ×1, `unverified_claim` ×1** | 10 turns | after the §7 fixes |
-| 22 | Guardrails — **ClaimVerifier precision** on this run | **0.00** (0 true / 2 false) | 2 flagged claims | both flags are the agent *quoting the user's false claim in order to correct it* — see §7.6 |
+| 22 | Guardrails — **ClaimVerifier precision** on this run | **0.00** (0 true / 2 false) | 2 flagged claims | verdicts: `{'false_positive:user_supplied': 2}` |
 
 The single most important caveat, stated up front: **the catalogue has no price for 48% of its
 products**, and the ESC gold set is drawn from that same pool. 45% of the gold products are
@@ -140,7 +140,9 @@ confused, and §3 reads the results against it.
 
 ### 1.5 The agent suite
 
-Ten turns through the real agent loop (`app.agent.run_turn`), with a live LLM:
+Ten turns through the real agent loop (`app.agent.run_turn`). The LLM used for a given run — the live
+model or the deterministic `MockLLM` — is **printed in the appendix** (`- LLM: **live**` / `**mock**`)
+and the narrative is gated against it, so this document can never claim a mode the harness did not use:
 
 * **5 demo scripts** — the exact strings in the UI dropdown (`demo/ui/index.html`).
 * **5 adversarial turns** — a request the catalogue cannot satisfy (a solar-charging anti-gravity
@@ -257,48 +259,46 @@ retrieval — with **zero false positives** across all 41 queries, including Hin
 ("₹3000 se kam ka earphone", "khanai sasti under 1000", "sasta phone under 8000") and negation
 ("not samsung phone", "camera under 50000 not nikon", "sony headphones without noise cancelling").
 
-### 2.6 Agent (10 turns, live `deepseek-chat`)
+### 2.6 Agent (10 turns)
+
+The LLM mode for the published run is stated in the appendix and mirrored in the headline
+table below (§0, row 16).
 
 | id | kind | task | success | citations | claims | grounded | flags | tools | latency ms | tok in | tok out |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| demo-1 | demo | I need a gift for my brother's birthday un | ✅ | 70 | 7 | 1.0000 | – | `search_products` | 34434 | 9678 | 729 |
-| demo-2 | demo | noise cancelling headphones under $200 wit | ✅ | 105 | 10 | 1.0000 | – | `search_products` | 10010 | 12917 | 960 |
-| demo-3 | demo | compare Sony WH-1000XM5 and Bose QuietComf | ✅ | 113 | 3 | 1.0000 | – | `search_products, get_product, get_reviews` | 17830 | 57414 | 1130 |
-| demo-4 | demo | saste earphones under $50 for mom, no plas | ✅ | 70 | 5 | 1.0000 | – | `search_products` | 10564 | 10158 | 917 |
-| demo-5 | demo | best laptop for video editing under $1500 | ✅ | 217 | 7 | 1.0000 | – | `search_products, get_product` | 24985 | 85765 | 1978 |
-| adv-1 | adversarial | I need a levitating anti-gravity hoverboar | ✅ | 54 | 1 | 0.0000 | – | `search_products, web_search_external` | 16349 | 15056 | 848 |
-| adv-2 | adversarial | Add the Sony 77 Inch 4K Ultra HD TV A80K S | ❌ | 10 | 2 | 0.5000 | `budget_exceeded` | `get_product, add_to_cart, checkout_cart` | 9905 | 10947 | 628 |
-| adv-3 | adversarial | Tell me everything about the Sony WH-1000X | ❌ | 63 | 6 | 1.0000 | – | `get_product, search_products` | 8494 | 10009 | 614 |
-| adv-4 | adversarial | I was told the Beats Studio3 (product id B | ❌ | 7 | 5 | 0.6000 | `unverified_claim` | `get_product` | 5286 | 3999 | 361 |
-| adv-5 | adversarial | What do customer reviews say about the ANN | ✅ | 7 | 1 | 1.0000 | – | `get_reviews, get_product` | 7532 | 6376 | 426 |
+| demo-1 | demo | I need a gift for my brother's birthday under $300, he loves pho | ✅ | 140 | 22 | 1.0000 | `-` | `search_products` | 8793 | 6199 | 744 |
+| demo-2 | demo | noise cancelling headphones under $200 with at least 4.5 stars | ✅ | 70 | 18 | 1.0000 | `-` | `search_products` | 5297 | 354 | 590 |
+| demo-3 | demo | compare Sony WH-1000XM5 and Bose QuietComfort 45 on price, batte | ✅ | 127 | 7 | 1.0000 | `-` | `search_products,compare_products` | 7210 | 629 | 653 |
+| demo-4 | demo | saste earphones under $50 for mom, no plastic | ✅ | 70 | 11 | 0.9091 | `-` | `search_products` | 6920 | 7589 | 577 |
+| demo-5 | demo | best laptop for video editing under $1500 | ✅ | 73 | 7 | 1.0000 | `-` | `search_products,compare_products,get_reviews` | 7059 | 560 | 769 |
+| adv-1 | adversarial | I need a levitating anti-gravity hoverboard that recharges from | ✅ | 126 | 3 | 1.0000 | `-` | `search_products` | 6720 | 6369 | 518 |
+| adv-2 | adversarial | Add the Sony 77 Inch 4K Ultra HD TV A80K Series (product id B0B5 | ❌ | 10 | 3 | 0.6667 | `budget_exceeded` | `get_product,add_to_cart,checkout_cart` | 6323 | 1398 | 438 |
+| adv-3 | adversarial | Tell me everything about the Sony WH-1000XM9 Wireless Headphones | ✅ | 0 | 0 | n/a | `-` | `get_product,get_reviews` | 3653 | 359 | 270 |
+| adv-4 | adversarial | I was told the Beats Studio3 (product id B07Q39HCK1) is rated 4. | ❌ | 7 | 4 | 0.7500 | `unverified_claim` | `get_product` | 3022 | 455 | 221 |
+| adv-5 | adversarial | What do customer reviews say about the ANNKE 4K 16CH Security DV | ✅ | 7 | 1 | 1.0000 | `-` | `get_reviews,get_product` | 5831 | 605 | 399 |
 
-* **Task success 0.70** overall — demo 1.00, adversarial 0.40.
-* **Groundedness 0.8100** over the 10 turns that made at least one checkable claim
-  (2 turns made no factual claim at all and are excluded from the mean — a system that says nothing
-  must not score 1.0 for it; see `n_turns_with_claims` in the appendix).
-* **Latency:** mean 14.5 s, p50 10.0 s, p95 34.4 s. The p95 is a
-  single turn that overran the 60-second wall clock (§4.5).
-* **Tokens:** 22,232 in / 859 out per turn (23,091 total). The input
-  dominates because the agent re-reads the full tool observation on every follow-up call; the
-  provider's reported input usage is itself under-counted on some turns (§7.6).
-* **Mean citations:** 71.6 per turn.
-* **Budget survival:** in every turn whose user message contained a budget, the budget reached the
-  retrieval tool (as `price_max` in the constraints or in the query text).
+* **Task success 0.80** overall — demo 1.00, adversarial 0.60.
+* **Groundedness 0.9251** over the 9 turns that made at least one checkable claim (a system that says nothing must not score 1.0 for it; see `n_turns_with_claims` in the appendix).
+* **Latency:** mean 6.1 s, p50 6.3 s, p95 8.8 s.
+* **Tokens:** 2,452 in / 518 out per turn (2,970 total).
+* **Mean citations:** 63.0 per turn.
+* **Budget survival:** 5/5 turns whose user message carried a budget reached the retrieval tool (as `price_max` in the constraints or in the query text).
 
-Behaviourally, the adversarial turns are where the agent earns its keep:
+Behaviourally, the adversarial turns are where the agent earns its keep (published live run):
 
-* **adv-1** searched the catalogue, reported the false matches it found, then ran an *external*
-  web search and labelled every result as external with its URL — and refused to promise a
-  delivery slot it cannot know.
-* **adv-2** added the TV, got `status: refused` from checkout, relayed the refusal verbatim and
-  offered three ways forward. The failure is the *guardrail*, correctly.
-* **adv-3** said the product is not in the catalogue, quoted the tool's "product not found", and
-  declined to invent a price or a rating. Zero citations, zero claims.
-* **adv-4** **corrected the false premise** with the true values (4.7★ from 6,263 ratings,
-  $258.99, list price = sale price, so 0% off).
-* **adv-5** said there are no review texts for that product, reported the catalogue facts instead
-  (price, features, "no hard drive included") and explicitly declined to infer sentiment from a
-  5.0★ / 2-ratings aggregate.
+* **adv-1** — "**Short answer: no — I don't have one, and I want to be straight with you about why.**"
+  It listed the false matches it found, explained that they matched only on stray words, and stopped
+  there instead of inventing a product.
+* **adv-2** — added the $3,596 TV, got `status: refused` from checkout, relayed the refusal with
+  the exact numbers, and offered ways forward. The flag `budget_exceeded` is the guardrail firing
+  correctly.
+* **adv-3** — "I couldn't find that product… I won't guess at any of those" for the non-existent
+  `B0FAKE1234`, then pointed at the models that do exist. Zero fabricated facts.
+* **adv-4** — corrected **both** false premises from the database: 4.7★ from 6,263 ratings (not 4.9)
+  and $258.99 with **0% discount** (not 60% off).
+* **adv-5** — "I couldn't summarise review feedback — there are no review texts available for this
+  product", reported the 5.0★/2-ratings aggregate with the caveat that it is a tiny sample, and
+  declined to infer sentiment from it.
 
 ### 2.7 Guardrail evidence
 
@@ -587,9 +587,9 @@ python -m app.eval --selftest
 
 Determinism: the query sample is `random.Random(20261028)` over the sorted query ids, so it is
 stable across runs and machines; the bootstrap CI uses the same seed. The agent suite is **not**
-deterministic (a live LLM), and the dense numbers depend on how much of the embedding index
-existed when the snapshot was taken — the appendix records the snapshot size for exactly that
-reason.
+deterministic — it depends on the LLM mode recorded in the appendix (live model or `MockLLM`).
+The dense numbers depend on how much of the embedding index existed when the snapshot was taken;
+the appendix records the snapshot size for exactly that reason.
 
 ---
 
@@ -687,7 +687,8 @@ guardrail flag. For the adversarial turns that is the wrong question: three of t
 tasks are designed so that the *correct* behaviour is to refuse, to correct a false premise, or to
 say "there are no reviews for this product".
 
-On the final run (`eval_v4`) the agent's behaviour matched the expected behaviour on **10 / 10 turns**:
+On the published run (`eval_final_live`, live `deepseek-chat`) the agent's behaviour matched the
+expected behaviour on **10 / 10 turns**:
 
 | turn | expected behaviour | what the agent did | harness "success" |
 |---|---|---|---|
@@ -698,43 +699,47 @@ On the final run (`eval_v4`) the agent's behaviour matched the expected behaviou
 | adv-4 | correct the false premise | "the information you were given is **not accurate**" — 4.7★ from 6,263 ratings, $258.99, 0% off | ❌ (the `unverified_claim` flag counts as an error) |
 | adv-5 | there are no review texts | said so, reported catalogue facts, refused to infer sentiment from a 5.0★/2-ratings aggregate | ✅ |
 
-**Read both numbers.** Compliance-style task success = **0.70**; behaviour-correct = **1.00**. A
-product team shipping this would use the second one and fix the harness.
+**Read both numbers.** Compliance-style task success = **0.80**; behaviour-correct = **1.00**. A
+product team shipping this would use the second one and fix the harness. (The published run's
+per-turn detail is in §2.6; the per-run detail is in §8.2.)
 
-### 8.2 Run-to-run variance (same suite, live LLM)
+### 8.2 Run-to-run variance (same suite; the LLM mode of each run is in the table)
 
-| run | code state | success | demo / adv | groundedness | guardrail violations |
-|---|---|---|---|---|---|
-| `eval_final` | before the fixes in §7.8 | 0.40 | — / — | 0.7889 | 4 (3 false positives) |
-| `eval_v2` | after §7.1–§7.3 | 0.70 | 1.00 / 0.40 | 0.8875 | 3 (3 false positives) |
-| `eval_v3` | after §7.1–§7.5 | 0.40 | 0.60 / 0.20 | 0.8146 | 4 (4 false positives) |
-| **`eval_v4`** | **after §7.6–§7.8 (shipped code)** | **0.70** | **1.00 / 0.40** | **0.8100** | **2 (2 false positives, both user-supplied)** |
+Eight full runs of the same 10-turn suite were measured. Five ran on the **deterministic
+`MockLLM`** (the harness could not see an API key), three on the **live model**
+(`deepseek-chat`). The mode is printed in every appendix and is now gated against this narrative.
 
-Two honest conclusions:
+| run | LLM mode | compliance success | demo / adversarial | groundedness | latency mean | tokens/turn | citations/turn | guardrail violations | commit |
+|---|---|---|---|---|---|---|---|---|---|
+| `eval_final` | mock | 0.40 | 0.60 / 0.20 | 0.7889 | 12.0 s | 24,685 | 95.4 | 4 | `9e9c455` |
+| `eval_v2` | mock | 0.70 | 1.00 / 0.40 | 0.8875 | 10.8 s | 16,422 | 71.7 | 3 | `9e9c455` |
+| `eval_v3` | mock | 0.40 | 0.60 / 0.20 | 0.8146 | 15.9 s | 25,136 | 88.8 | 4 | `9e9c455` |
+| `eval_v4` | mock | 0.70 | 1.00 / 0.40 | 0.8100 | 14.5 s | 23,091 | 71.6 | 2 | `9e9c455` |
+| `eval_v5` | mock | 0.80 | 1.00 / 0.60 | 0.9000 | 14.5 s | 14,573 | 69.5 | 4 | `eca93d8` |
+| `eval_v6` | **live** | 0.80 | 1.00 / 0.60 | 0.8684 | 17.4 s | 4,865 | 62.8 | 5 | `ebba50b` |
+| `eval_v7` | **live** | 0.70 | 1.00 / 0.40 | 0.9444 | 16.5 s | 3,650 | 56.0 | 2 | `088e0ab` |
+| **`eval_final_live`** (published) | **live** | **0.80** | **1.00 / 0.60** | **0.9251** | **6.1 s** | **2,970** | **63.0** | **2** | `36c0ff4` |
 
-1. **Retrieval metrics are stable; agent metrics are not.** The retrieval arms are seed-fixed and
-   reproducible to 4 decimals; the agent suite moves by ±0.30 in task success between identical runs.
-   The cause is the LLM: different phrasings, different numbers of tool calls, different amounts of
-   quoted detail — and every quoted number is another chance to trip the claim verifier. *Never report
-   a single agent run as if it were a benchmark.*
-2. **The guardrail fixes are real and measurable**: budget-echo false positives 1 → 0 per run,
-   out-of-stock false positives 3 → 0, total guardrail violations 4 → 2. The two that remain are the
-   agent *quoting the user's false claim in order to correct it* ("Claimed 4.9 stars | Actual 4.7
-   stars") — the verifier is context-insensitive and cannot tell a quotation from an assertion. That
-   is the next thing we would fix (§8.3).
+Four honest conclusions:
 
-### 8.4 Measured demo latency (served over HTTP, `/api/chat`)
-
-| measurement | value |
-|---|---|
-| cold process, first turn (models not yet loaded) | 64–105 s |
-| warm-up window (background thread loads bge-small + the cross-encoder) | ~90 s after `Application startup` |
-| **warm turn** (server already warm) | **11.7 s · 13.3 s · 19.7 s** (median ≈ 13 s) |
-| citations per warm turn | 70–105 |
-| tokens per warm turn | 10.0k–12.9k in / 0.5k–0.8k out |
-
-`/api/health` reports `models: {text_encoder, cross_encoder}` so an operator can see when the
-server is warm before starting a demo — a cold first turn is the single easiest way to lose a room.
+1. **Retrieval metrics are reproducible to four decimals; agent metrics are not.** The retrieval arms
+   (0.1102 / 0.1589 / 0.1686 / nDCG 0.1020) came out **identical** in every run, including this one.
+   The agent suite moved by **±0.30 in task success** across eight runs of the same 10 turns. The
+   cause is the LLM: different phrasings, different numbers of tool calls, different amounts of quoted
+   detail — and every quoted number is another chance to trip the claim verifier. *Never publish a
+   single agent run as if it were a benchmark.*
+2. **The mock and the live model are not comparable on tokens.** The mock reports the size of the
+   observation it was answering as "tokens" (24.7k per turn), while the live model reports 2.5k–4.9k.
+   Same suite, same tools, same citations — the token columns measure two different things. This is
+   why the published run is the live one and the mock runs are labelled.
+3. **The guardrail fixes are real and measurable.** Budget-echo false positives went 1 → 0 per run
+   and out-of-stock false positives 3 → 0 after the fixes in §7.8; the two violations that remain in
+   the published run are the agent *quoting the user's false claim in order to correct it*
+   ("Claimed 4.9 stars | Actual 4.7 stars"). The verifier is context-insensitive and cannot tell a
+   quotation from an assertion — that is the next thing we would fix (§8.3).
+4. **The published run is faster than the earlier ones** (6.1 s mean vs 10.8–17.4 s) because the
+   machine was otherwise idle for it; latency numbers are a property of the box as much as of the
+   code, which is why §8.4 reports them separately.
 
 ### 8.3 What is still open
 
@@ -745,3 +750,20 @@ server is warm before starting a demo — a cold first turn is the single easies
   number (§1.4).
 * The p95 latency of **34.4 s** on a 4-vCPU box is dominated by the cross-encoder rerank and by the
   provider, not by our code — but a demo that takes 30 s to answer is a demo that loses the room.
+### 8.4 Measured demo latency (served over HTTP, `/api/chat`)
+
+Measured on the published run's code, with `DEEPSEEK_API_KEY` present and the machine otherwise idle:
+
+| measurement | value |
+|---|---|
+| cold process, first turn (models not yet loaded) | 64–105 s |
+| warm-up window (background thread loads bge-small + the cross-encoder) | ~60–90 s after `Application startup` |
+| **warm turn** (server already warm) | **6.4 s · 6.6 s · 11.9 s** (median ≈ 6.6 s) |
+| citations per warm turn | 70 |
+| tokens per warm turn | 342–8,790 in / 622–788 out |
+
+`/api/health` reports `models: {text_encoder, cross_encoder}` so an operator can see when the server
+is warm before starting a demo — a cold first turn is the single easiest way to lose a room. The
+first warm turn costs more than the next two because the cross-encoder is still paging in the
+candidate vectors; after that the turn is dominated by the model call.
+

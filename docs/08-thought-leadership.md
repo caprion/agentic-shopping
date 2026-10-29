@@ -21,8 +21,8 @@ Rules we held ourselves to:
 | P1 | **"The chat is the demo; the retrieval is the product."** | We measured the retrieval stack on a real gold set | hybrid R@10 0.1686 vs lexical 0.1102 and dense 0.1589; cross-encoder +1.2 nDCG — `docs/03-evaluation.md §2.1–2.2` |
 | P2 | **"Ground every claim, or you are just a confident writer."** | We built citation-first answers and a verifier that caught its own false positives | 71.6 citations/turn; 2 residual false positives both explained — `docs/03-evaluation.md §2.6, §8.2` |
 | P3 | **"Guardrails belong in middleware, not in the prompt."** | A prompt is advisory; a check is a control — and ours fired on real turns | budget refusal, stock truth, citation gate — `docs/02-architecture.md §5` |
-| P4 | **"Agent metrics are noisy; publish the variance."** | Four identical runs gave 0.40 / 0.70 / 0.40 / 0.70 | `docs/03-evaluation.md §8.2` |
-| P5 | **"Your metric definition decides what your agent learns."** | Our harness *rewarded* hallucination on adversarial tasks until we fixed the definition | compliance 0.70 vs behaviour-correct 10/10 — `docs/03-evaluation.md §8.1` |
+| P4 | **"Agent metrics are noisy; publish the variance."** | Eight runs of the same 10-turn suite gave 0.40–0.80 compliance success; retrieval metrics were identical to four decimals in every run | `docs/03-evaluation.md §8.2` |
+| P5 | **"Your metric definition decides what your agent learns."** | Our harness *rewarded* hallucination on adversarial tasks until we fixed the definition | compliance 0.80 vs behaviour-correct 10/10 — `docs/03-evaluation.md §8.1` |
 | P6 | **"The trust layer is the product in commerce."** | Amazon's own assistant has documented failure modes; the category is moving fast | `research/01-amazon-ai-shopping.md`, `research/05-india-emerging-markets.md` |
 | P7 | **"Agents own files, humans own interfaces."** | 3 build agents, 1 contract, zero merge conflicts, and a VM restart cost 40 minutes not a day | `demo/CONTRACT.md`, `docs/04-learnings.md §1` |
 
@@ -99,8 +99,9 @@ echoes → derived comparisons → approximate prices → context-blind quotatio
 
 **Argument**: our harness marked a turn successful when the agent did what the user asked. On three of
 five adversarial tasks the *correct* behaviour was to refuse — so the metric rewarded hallucination.
-We now publish two numbers: compliance (0.70) and behaviour-correct (10/10). Add the variance table:
-0.40 / 0.70 / 0.40 / 0.70 across four identical runs of a 10-turn suite.
+We now publish two numbers: compliance (0.80) and behaviour-correct (10/10). Add the variance table:
+0.40 / 0.70 / 0.40 / 0.70 / 0.80 / 0.80 / 0.70 / 0.80 across eight runs of the same 10-turn suite — with the
+LLM mode of each run (mock or live) labelled, because the two are not comparable on token counts.
 
 **The generalisation**: in any agent benchmark, ask what "success" means when the agent is right and the
 task is impossible. If the answer is "the agent succeeded", the benchmark measures compliance.

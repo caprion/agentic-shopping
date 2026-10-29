@@ -49,6 +49,14 @@ HEADERS = {
 }
 
 
+def _nums_after(text: str, marker: str) -> list[str]:
+    """All bolded numbers on the line that starts with `marker`."""
+    for line in text.split("\n"):
+        if line.strip().startswith(marker):
+            return re.findall(r"\*\*([0-9.]+)\*\*", line)
+    return []
+
+
 def _parse_agent(report: str) -> dict:
     """Pull the agent-suite numbers out of the machine-generated report."""
     m = re.search(r"## 3\. Agent.*?(?=\n## 4\.|\Z)", report, flags=re.S)
@@ -60,6 +68,8 @@ def _parse_agent(report: str) -> dict:
         mm = re.search(pattern, sec, flags=re.I)
         return mm.group(1).strip() if mm else default
 
+    lat = _nums_after(sec, "- latency ms:")
+    tok = _nums_after(sec, "- tokens/turn:")
     flags = grab(r"guardrail flags raised: `(.+?)`", "")
     verdicts = grab(r"verdicts: `(.+?)`", "")
     return {
@@ -71,13 +81,15 @@ def _parse_agent(report: str) -> dict:
         "success": grab(r"overall task success: \*\*([0-9.]+)\*\*", "?"),
         "groundedness": grab(r"groundedness \(mean over turns with .*?\): \*\*([0-9.]+)\*\*", "?"),
         "n_claims_turns": grab(r"groundedness \(mean over turns with [^)]*n=(\d+)\)", "?"),
-        "lat_mean": grab(r"latency ms: mean \*\*([0-9.]+)\*\*", "?"),
-        "lat_p50": grab(r"latency ms: mean [0-9.]+, p50 \*\*([0-9.]+)\*\*", "?"),
-        "lat_p95": grab(r"latency ms: mean [0-9.]+, p50 [0-9.]+, p95 \*\*([0-9.]+)\*\*", "?"),
-        "tok_in": grab(r"tokens/turn: in \*\*([0-9.]+)\*\*", "?"),
-        "tok_out": grab(r"tokens/turn: in [0-9.]+, out \*\*([0-9.]+)\*\*", "?"),
-        "tok_total": grab(r"tokens/turn: in [0-9.]+, out [0-9.]+, total \*\*([0-9.]+)\*\*", "?"),
+        "lat": _nums_after(sec, "- latency ms:"),
+        "tok": _nums_after(sec, "- tokens/turn:"),
         "citations": grab(r"mean citations per turn: \*\*([0-9.]+)\*\*", "?"),
+        "lat_mean": lat[0] if len(lat) > 0 else "?",
+        "lat_p50": lat[1] if len(lat) > 1 else "?",
+        "lat_p95": lat[2] if len(lat) > 2 else "?",
+        "tok_in": tok[0] if len(tok) > 0 else "?",
+        "tok_out": tok[1] if len(tok) > 1 else "?",
+        "tok_total": tok[2] if len(tok) > 2 else "?",
         "budget_survival": grab(r"budget survival \(.*?\): \*\*([0-9/]+)\*\*", "?"),
         "flags": flags,
         "verdicts": verdicts,
@@ -178,7 +190,8 @@ def _agent_rows(a: dict) -> dict[str, str]:
                f"p95 is a wall-clock overrun — §4.5 |"),
         "19": (f"| 19 | Agent — **tokens per turn** (in / out / total) | **{toks}** | {a['n_tasks']} turns | "
                f"input dominates: the agent re-reads tool output every turn |"),
-        "20": (f"| 20 | Agent — mean **citations** per turn** | **{a['citations']}** | {a['n_tasks']} turns | |".replace("** |", " |")),
+        "20": (f"| 20 | Agent — mean **citations** per turn | **{a['citations']}** | "
+               f"{a['n_tasks']} turns | |"),
         "21": (f"| 21 | Guardrails — flags raised | **{flags_txt}** | {a['n_tasks']} turns | "
                f"after the §7 fixes |"),
         "22": (f"| 22 | Guardrails — **ClaimVerifier precision** on this run | **{f(a['precision'])}** "

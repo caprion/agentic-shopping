@@ -157,6 +157,23 @@ def run() -> list[tuple[str, bool, str]]:
               bool(rm) and rep_ndcg is not None and rm.group(4) == rep_ndcg,
               f"README={rm.group(4) if rm else None} report={rep_ndcg}")
 
+    # the LLM mode recorded in the report must be the mode the narrative claims
+    mode = None
+    mm = re.search(r"- LLM: \*\*(.+?)\*\*", report)
+    if mm:
+        mode = mm.group(1).strip().lower()
+    readme_txt = ""
+    readme_path = os.path.join(REPO_ROOT, "README.md")
+    if os.path.exists(readme_path):
+        readme_txt = open(readme_path, encoding="utf-8").read()
+    if mode:
+        row16 = next((ln for ln in doc.split("\n") if ln.strip().startswith("| 16 | Agent")), "")
+        check("docs headline row 16 states the report's LLM mode",
+              f"**{mode}**" in row16, f"row16={row16[:120]}")
+        check("README states the report's LLM mode",
+              f"LLM mode **{mode}**" in readme_txt,
+              f"report mode={mode}")
+
     return list(RESULTS)
 
 
